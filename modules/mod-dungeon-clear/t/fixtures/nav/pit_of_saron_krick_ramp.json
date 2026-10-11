@@ -1,0 +1,18 @@
+# Pit of Saron (map 658) — the north bridge out of Krick's arena.
+#
+# Between Krick's arena (z~510-522) and the ramp that climbs east to Tyrannus
+# (z~522-565) there is a chasm, and exactly three walkable links cross it. The
+# one at y~76.8 — (865.87,76.75,524.31) -> (869.69,75.11,527.40) — lets A* climb
+# straight out of the arena's south-east corner and clip the party through the
+# wall, and it is 44yd cheaper than the way round, so the search took it every
+# time. DcNavPenaltyRegistry boxes that crossing (x 862..873, y 71..81,
+# z 520..531) so the corridor has to use the ramp's real foot by gate 1 instead:
+# the link at y~52.9, (861.93,52.93,517.07) -> (871.13,58.27,522.07).
+#
+# Same assertion as the LBRS fixture, and for the same reason: the guarded
+# property is that the top of the ambush ramp stays REACHABLE — a cost penalty
+# must never strand the party by pricing out the only route it knows. Tighten
+# later with a minPoints floor (the measured detour is 189yd against the
+# shortcut's 145yd, so it carries materially more corridor points) to assert the
+# shortcut itself is gone rather than merely that the goal is still reachable.
+{"name":"PoS Krick's arena to the top of the ambush ramp (no north-bridge shortcut)","map":658,"sx":852.85,"sy":123.53,"sz":510.11,"tx":928.83,"ty":66.60,"tz":565.79,"expectReachable":true,"expectComplete":true}

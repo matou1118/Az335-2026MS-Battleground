@@ -1,0 +1,42 @@
+name: C++ Codestyle
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+    paths:
+      - src/**
+      - apps/codestyle/**
+      - .github/workflows/codestyle_cpp.yml
+      - "!README.md"
+      - "!docs/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    name: C++
+    if: '!github.event.pull_request.draft'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - name: AzerothCore codestyle
+        run: python ./apps/codestyle/codestyle-cpp.py
+      - name: C++ Advanced
+        run: |
+          sudo apt update -y
+          sudo apt install -y cppcheck
+          cppcheck --force --inline-suppr --suppressions-list=./.suppress.cppcheck src/ --output-file=report.txt
+
+          if [ -s report.txt ]; then  # if file is not empty
+            cat report.txt
+            exit 1 # let github action fails
+          fi
