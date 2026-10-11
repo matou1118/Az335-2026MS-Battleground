@@ -1,0 +1,146 @@
+/*
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef MODULE_DATABASE_POOL_H
+#define MODULE_DATABASE_POOL_H
+
+#include "DatabaseEnvFwd.h"
+#include "DatabaseUpdatePool.h"
+#include "Define.h"
+#include "MySQLConnection.h"
+#include "PreparedStatement.h"
+#include "StringFormat.h"
+#include <array>
+#include <memory>
+#include <string_view>
+#include <vector>
+
+template <typename T>
+class ProducerConsumerQueue;
+
+class SQLOperation;
+class TransactionBase;
+
+// Base class for module-owned database pools, with the DatabaseWorkerPool API.
+// Flag each prepared statement by the calls that use it:
+//   CONNECTION_ASYNC  - Execute, CommitTransaction, AsyncQuery, AsyncCommitTransaction, DelayQueryHolder
+//   CONNECTION_SYNCH  - Query and the Direct* calls
+//   CONNECTION_BOTH   - both groups
+// If the pool may run with 0 async connections, every call runs synchronously: use CONNECTION_BOTH, never
+// CONNECTION_ASYNC. A statement missing from the connection it runs on asserts on first use.
+class AC_DATABASE_API ModuleDatabasePool : public DatabaseUpdatePool
+{
+private:
+    enum InternalIndex
+    {
+        IDX_ASYNC,
+        IDX_SYNCH,
+        IDX_SIZE
+    };
+
+public:
+    ModuleDatabasePool();
+    virtual ~ModuleDatabasePool();
+
+    void SetConnectionInfo(std::string_view infoString, uint8 synchThreads);
+
+    void SetConnectionInfo(std::string_view infoString, uint8 asyncThreads, uint8 synchThreads);
+
+    uint32 Open();
+
+    //! Call once the schema is up to date.
+    bool PrepareStatements();
+
+    void Close();
+
+    void Execute(std::string_view sql);
+    void DirectExecute(std::string_view sql) override;
+    QueryResult Query(std::string_view sql) override;
+    MySQLConnectionInfo const* GetConnectionInfo() const override;
+
+    template<typename... Args>
+    void Execute(std::string_view sql, Args&&... args)
+    {
+        if (sql.empty())
+            return;
+
+        Execute(std::string_view(Acore::StringFormat(sql, std::forward<Args>(args)...)));
+    }
+
+    template<typename... Args>
+    void DirectExecute(std::string_view sql, Args&&... args)
+    {
+        if (sql.empty())
+            return;
+
+        DirectExecute(std::string_view(Acore::StringFormat(sql, std::forward<Args>(args)...)));
+    }
+
+    template<typename... Args>
+    QueryResult Query(std::string_view sql, Args&&... args)
+    {
+        if (sql.empty())
+            return QueryResult(nullptr);
+
+        return Query(std::string_view(Acore::StringFormat(sql, std::forward<Args>(args)...)));
+    }
+
+    //! These take ownership of the statement and delete it.
+    void Execute(PreparedStatementBase* stmt);
+    void DirectExecute(PreparedStatementBase* stmt);
+    PreparedQueryResult Query(PreparedStatementBase* stmt);
+
+    QueryCallback AsyncQuery(std::string_view sql);
+    QueryCallback AsyncQuery(PreparedStatementBase* stmt);
+
+    SQLQueryHolderCallback DelayQueryHolder(std::shared_ptr<SQLQueryHolderBase> holder);
+
+    //! Returns 0 until PrepareStatements() has run.
+    [[nodiscard]] uint8 GetPreparedStatementParamCount(uint32 index) const;
+
+    void CommitTransaction(std::shared_ptr<TransactionBase> transaction);
+    TransactionCallback AsyncCommitTransaction(std::shared_ptr<TransactionBase> transaction);
+    void DirectCommitTransaction(std::shared_ptr<TransactionBase> transaction);
+
+    void KeepAlive();
+    [[nodiscard]] std::size_t QueueSize() const;
+
+    void WarnAboutSyncQueries(bool warn);
+
+protected:
+    virtual MySQLConnection* CreateConnection(MySQLConnectionInfo& connInfo) = 0;
+
+    virtual MySQLConnection* CreateConnection(ProducerConsumerQueue<SQLOperation*>* queue,
+        MySQLConnectionInfo& connInfo);
+
+private:
+    uint32 OpenConnections(InternalIndex type, uint8 numConnections);
+
+    void Enqueue(SQLOperation* op);
+    bool TryDirectCommitTransaction(std::shared_ptr<TransactionBase> transaction);
+
+    MySQLConnection* GetFreeConnection();
+
+    MySQLConnectionInfo _connectionInfo;
+    std::unique_ptr<ProducerConsumerQueue<SQLOperation*>> _queue;
+    std::array<std::vector<std::unique_ptr<MySQLConnection>>, IDX_SIZE> _connections;
+    std::vector<uint8> _preparedStatementSize;
+    uint8 _asyncThreads;
+    uint8 _synchThreads;
+};
+
+#endif

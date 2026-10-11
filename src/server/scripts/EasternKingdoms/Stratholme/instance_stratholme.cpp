@@ -1,0 +1,858 @@
+/*
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "GameObjectScript.h"
+#include "GameTime.h"
+#include "InstanceMapScript.h"
+#include "InstanceScript.h"
+#include "Player.h"
+#include "ScriptedCreature.h"
+#include "stratholme.h"
+
+#include <array>
+#include <list>
+#include <unordered_set>
+
+const Position BlackGuardPos[10] =
+{
+    {4032.73f + 0.0f, -3378.26f + 0.0f, 119.76f, 4.67f},
+    {4032.73f + 2.0f, -3378.26f + 2.0f, 119.76f, 4.67f},
+    {4032.73f + 2.0f, -3378.26f - 2.0f, 119.76f, 4.67f},
+    {4032.73f - 2.0f, -3378.26f + 2.0f, 119.76f, 4.67f},
+    {4032.73f - 2.0f, -3378.26f - 2.0f, 119.76f, 4.67f},
+
+    {4032.73f + 0.0f, -3407.38f + 0.0f, 115.56f, 0.0f},
+    {4032.73f + 2.0f, -3407.38f + 2.0f, 115.56f, 0.0f},
+    {4032.73f + 2.0f, -3407.38f - 2.0f, 115.56f, 0.0f},
+    {4032.73f - 2.0f, -3407.38f + 2.0f, 115.56f, 0.0f},
+    {4032.73f - 2.0f, -3407.38f - 2.0f, 115.56f, 0.0f}
+};
+
+// Creatures to be spawned during the trap events
+static const uint32 aPlaguedCritters[] =
+{
+    NPC_PLAGUED_RAT, NPC_PLAGUED_MAGGOT, NPC_PLAGUED_INSECT
+};
+
+// Positions of the two Gate Traps
+static const Position aGateTrap[] =
+{
+    {3612.29f, -3335.39f, 124.077f, 3.14159f},  // Scarlet side
+    {3919.88f, -3547.34f, 134.269f, 2.94961f}   // Undead side
+};
+
+Position const MindlessUndeadPos = { 3941.75f, -3393.06f, 119.70f, 0.0f };
+Position const BarthilasPos = { 4068.74f, -3535.97f, 122.825f, 2.478367567062377929f };
+Position const SlaughterPos = { 4032.20f, -3378.06f, 119.75f, 4.67f };
+
+enum SlaughterPhases
+{
+    SLAUGHTER_ABOMINATIONS,
+    SLAUGHTER_RAMSTEIN,
+    SLAUGHTER_MINDLESS_UNDEAD,
+    SLAUGHTER_BLACK_GUARD,
+    SLAUGHTER_COMPLETE
+};
+
+enum GateTrapIndexes
+{
+    GATE_TRAP_SCARLET,
+    GATE_TRAP_UNDEAD,
+    MAX_GATE_TRAPS
+};
+
+constexpr uint8 MAX_GATE_TRAP_GATES = 4;
+constexpr uint32 GATE_TRAP_COOLDOWN = 30 * MINUTE;
+
+static constexpr uint8 ScarletThreadSpawnCount = 4;
+static constexpr uint8 AllScarletThreadLocations = (1 << ScarletThreadSpawnCount) - 1;
+
+class instance_stratholme : public InstanceMapScript
+{
+public:
+    instance_stratholme() : InstanceMapScript("instance_stratholme", MAP_STRATHOLME) { }
+
+    struct instance_stratholme_InstanceMapScript : public InstanceScript
+    {
+        instance_stratholme_InstanceMapScript(Map* map) : InstanceScript(map)
+        {
+            SetHeaders(DataHeader);
+        }
+
+        void Initialize() override
+        {
+            _baronRunProgress = 0;
+            _baronRunTime = 0;
+            _zigguratState1 = 0;
+            _zigguratState2 = 0;
+            _zigguratState3 = 0;
+            _slaughterProgress = SLAUGHTER_ABOMINATIONS;
+            _slaughterNPCs = 0;
+            _abominationSpawnIds.clear();
+            _postboxesOpened = 0;
+
+            _scarletThreadUsedLocations = 0;
+            _scarletThreadLocation = 0;
+            _scarletThreadGUID.Clear();
+
+            _gateTrapsCooldown[0] = false;
+            _gateTrapsCooldown[1] = false;
+            _gateTrapCooldownEnd[0] = 0;
+            _gateTrapCooldownEnd[1] = 0;
+
+            for (bool& needsRecovery : _gateTrapNeedsRecovery)
+                needsRecovery = true;
+
+            for (ObjectGuid& trappedPlayerGUID : _trappedPlayerGUIDs)
+                trappedPlayerGUID.Clear();
+
+            events.Reset();
+        }
+
+        void OnPlayerEnter(Player* player) override
+        {
+            if (_baronRunTime > 0)
+                if (Aura* aura = player->AddAura(SPELL_BARON_ULTIMATUM, player))
+                    aura->SetDuration(_baronRunTime * MINUTE * IN_MILLISECONDS);
+
+            SpawnScarletThread();
+        }
+
+        void OnCreatureCreate(Creature* creature) override
+        {
+            switch (creature->GetEntry())
+            {
+                case NPC_BARON_RIVENDARE:
+                    _baronRivendareGUID = creature->GetGUID();
+                    break;
+                case NPC_VENOM_BELCHER:
+                case NPC_BILE_SPEWER:
+                    if (_slaughterProgress == SLAUGHTER_ABOMINATIONS && creature->GetSpawnId())
+                        _abominationSpawnIds.insert(creature->GetSpawnId());
+                    break;
+                case NPC_RAMSTEIN_THE_GORGER:
+                    if (_slaughterProgress == SLAUGHTER_RAMSTEIN)
+                        ++_slaughterNPCs;
+                    break;
+                case NPC_MINDLESS_UNDEAD:
+                    if (_slaughterProgress == SLAUGHTER_MINDLESS_UNDEAD)
+                        ++_slaughterNPCs;
+                    break;
+                case NPC_BLACK_GUARD:
+                    if (_slaughterProgress == SLAUGHTER_BLACK_GUARD)
+                        ++_slaughterNPCs;
+                    break;
+                case NPC_BARTHILAS:
+                    _barthilasGUID = creature->GetGUID();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        void ProcessSlaughterEvent()
+        {
+            if (_slaughterProgress == SLAUGHTER_RAMSTEIN)
+            {
+                if (Creature* baron = instance->GetCreature(_baronRivendareGUID))
+                    baron->AI()->Talk(SAY_BRAON_SUMMON_RAMSTEIN);
+
+                instance->SummonCreature(NPC_RAMSTEIN_THE_GORGER, SlaughterPos);
+            }
+            if (_slaughterProgress == SLAUGHTER_MINDLESS_UNDEAD)
+            {
+                for (uint32 i = 0; i < 33; ++i)
+                    events.ScheduleEvent(EVENT_SPAWN_MINDLESS, Milliseconds(5000 + i * 210));
+                if (Creature* baron = instance->GetCreature(_baronRivendareGUID))
+                    if (GameObject* gate = baron->FindNearestGameObject(GO_SLAUGHTER_GATE_SIDE, 200.0f))
+                        gate->SetGoState(GO_STATE_ACTIVE);
+            }
+            if (_slaughterProgress == SLAUGHTER_BLACK_GUARD)
+            {
+                events.ScheduleEvent(EVENT_SPAWN_BLACK_GUARD, 20s);
+            }
+            if (_slaughterProgress == SLAUGHTER_COMPLETE)
+            {
+                if (Creature* baron = instance->GetCreature(_baronRivendareGUID))
+                    baron->AI()->Talk(SAY_BARON_GUARD_DEAD);
+                if (GameObject* gate = instance->GetGameObject(_zigguratDoorsGUID5))
+                    gate->SetGoState(GO_STATE_ACTIVE);
+            }
+        }
+
+        void OnUnitDeath(Unit* unit) override
+        {
+            switch (unit->GetEntry())
+            {
+                case NPC_VENOM_BELCHER:
+                case NPC_BILE_SPEWER:
+                {
+                    Creature* creature = unit->ToCreature();
+                    if (_slaughterProgress != SLAUGHTER_ABOMINATIONS || !creature ||
+                        !_abominationSpawnIds.count(creature->GetSpawnId()) ||
+                        HasLivingAbominations(creature->GetSpawnId()))
+                        break;
+
+                    _abominationSpawnIds.clear();
+                    AdvanceSlaughterEvent();
+                    break;
+                }
+                case NPC_RAMSTEIN_THE_GORGER:
+                case NPC_MINDLESS_UNDEAD:
+                case NPC_BLACK_GUARD:
+                    if (IsCurrentSlaughterTarget(unit->GetEntry()) && _slaughterNPCs && --_slaughterNPCs == 0)
+                        AdvanceSlaughterEvent();
+                    break;
+                case NPC_BARON_RIVENDARE:
+                    events.CancelEvent(EVENT_BARON_TIME);
+                    DoRemoveAurasDueToSpellOnPlayers(SPELL_BARON_ULTIMATUM);
+                    break;
+            }
+        }
+
+        void OnGameObjectCreate(GameObject* go) override
+        {
+            switch (go->GetEntry())
+            {
+                case GO_CRUSADER_SQUARE_DOOR:
+                case GO_HOARD_DOOR:
+                case GO_HALL_OF_HIGH_COMMAND:
+                case GO_GAUNTLET_DOOR_1:
+                case GO_GAUNTLET_DOOR_2:
+                    go->AllowSaveToDB(true);
+                    break;
+                case GO_ZIGGURAT_DOORS1:
+                    go->AllowSaveToDB(true);
+                    _zigguratDoorsGUID1 = go->GetGUID();
+                    if (GetData(TYPE_ZIGGURAT1) >= 1)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_ZIGGURAT_DOORS2:
+                    go->AllowSaveToDB(true);
+                    _zigguratDoorsGUID2 = go->GetGUID();
+                    if (GetData(TYPE_ZIGGURAT2) >= 1)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_ZIGGURAT_DOORS3:
+                    go->AllowSaveToDB(true);
+                    _zigguratDoorsGUID3 = go->GetGUID();
+                    if (GetData(TYPE_ZIGGURAT3) >= 1)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_GAUNTLET_GATE:
+                    go->AllowSaveToDB(true);
+                    _gauntletGateGUID = go->GetGUID();
+                    if (_zigguratState1 == 2 && _zigguratState2 == 2 && _zigguratState3 == 2)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_SLAUGTHER_GATE:
+                    go->AllowSaveToDB(true);
+                    _slaughterGateGUID = go->GetGUID();
+                    if (_zigguratState1 == 2 && _zigguratState2 == 2 && _zigguratState3 == 2)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_ZIGGURAT_DOORS4:
+                    go->AllowSaveToDB(true);
+                    _zigguratDoorsGUID4 = go->GetGUID();
+                    if (_slaughterProgress == SLAUGHTER_COMPLETE)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_ZIGGURAT_DOORS5:
+                    go->AllowSaveToDB(true);
+                    _zigguratDoorsGUID5 = go->GetGUID();
+                    if (_slaughterProgress == SLAUGHTER_COMPLETE)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_SLAUGHTER_GATE_SIDE:
+                    go->AllowSaveToDB(true);
+                    if (_slaughterProgress >= SLAUGHTER_MINDLESS_UNDEAD)
+                        go->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                case GO_PORT_TRAP_GATE_1:
+                    HandleGateTrapCreate(go, 0);
+                    break;
+                case GO_PORT_TRAP_GATE_2:
+                    HandleGateTrapCreate(go, 1);
+                    break;
+                case GO_PORT_TRAP_GATE_3:
+                    HandleGateTrapCreate(go, 2);
+                    break;
+                case GO_PORT_TRAP_GATE_4:
+                    HandleGateTrapCreate(go, 3);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        void CheckZiggurats()
+        {
+            if (_zigguratState1 == 2 && _zigguratState2 == 2 && _zigguratState3 == 2)
+            {
+                if (Creature* baron = instance->GetCreature(_baronRivendareGUID))
+                    baron->AI()->Talk(SAY_BRAON_ZIGGURAT_FALL_YELL);
+
+                if (GameObject* gate = instance->GetGameObject(_gauntletGateGUID))
+                    gate->SetGoState(GO_STATE_ACTIVE);
+                if (GameObject* gate = instance->GetGameObject(_slaughterGateGUID))
+                    gate->SetGoState(GO_STATE_ACTIVE);
+            }
+        }
+
+        void DoSpawnPlaguedCritters(uint8 /*uiGate*/, Player* player)
+        {
+            if (!player)
+                return;
+
+            uint32 uiEntry = aPlaguedCritters[urand(0, 2)];
+            for (uint8 i = 0; i < 30; ++i)
+            {
+                float x, y, z;
+                const Position pPos = { player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation() };
+                player->GetRandomPoint(pPos, 8.0f, x, y, z);
+                z = player->GetPositionZ() + 1;
+                player->SummonCreature(uiEntry, x, y, z, 0, TEMPSUMMON_DEAD_DESPAWN, 0)->AI()->AttackStart(player);
+            }
+        }
+
+        void SetData(uint32 type, uint32 data) override
+        {
+            switch (type)
+            {
+                case TYPE_BARON_RUN:
+                {
+                    if (_baronRunProgress == DATA_BARON_RUN_NONE)
+                    {
+                        _baronRunProgress = DATA_BARON_RUN_GATE;
+                        _baronRunTime = 45;
+                        DoCastSpellOnPlayers(SPELL_BARON_ULTIMATUM);
+                        events.ScheduleEvent(EVENT_BARON_TIME, 60s);
+
+                        if (Creature* baron = instance->GetCreature(_baronRivendareGUID))
+                            baron->AI()->Talk(SAY_BARON_INIT_YELL);
+                    }
+                    break;
+                }
+                case TYPE_ZIGGURAT1:
+                {
+                    if (data == _zigguratState1 + 1)
+                        ++_zigguratState1;
+
+                    if (_zigguratState1 == 1)
+                        if (GameObject* ziggurat = instance->GetGameObject(_zigguratDoorsGUID1))
+                            ziggurat->SetGoState(GO_STATE_ACTIVE);
+
+                    CheckZiggurats();
+                    break;
+                }
+                case TYPE_ZIGGURAT2:
+                {
+                    if (data == _zigguratState2 + 1)
+                        ++_zigguratState2;
+
+                    if (_zigguratState2 == 1)
+                        if (GameObject* ziggurat = instance->GetGameObject(_zigguratDoorsGUID2))
+                            ziggurat->SetGoState(GO_STATE_ACTIVE);
+
+                    CheckZiggurats();
+                    break;
+                }
+                case TYPE_ZIGGURAT3:
+                {
+                    if (data == _zigguratState3 + 1)
+                        ++_zigguratState3;
+
+                    if (_zigguratState3 == 1)
+                        if (GameObject* ziggurat = instance->GetGameObject(_zigguratDoorsGUID3))
+                            ziggurat->SetGoState(GO_STATE_ACTIVE);
+
+                    CheckZiggurats();
+                    break;
+                }
+                case TYPE_BARON_FIGHT:
+                {
+                    if (GameObject* gate = instance->GetGameObject(_zigguratDoorsGUID5))
+                        gate->SetGoState(data == IN_PROGRESS ? GO_STATE_READY : GO_STATE_ACTIVE);
+                    return;
+                }
+                case TYPE_MALLOW:
+                    ++_postboxesOpened;
+                    break;
+                case TYPE_BARTHILAS_RUN:
+                    if (data == DONE)
+                    {
+                        if (Creature* barthilas = instance->GetCreature(_barthilasGUID))
+                        {
+                            if (barthilas->IsAlive())
+                            {
+                                barthilas->NearTeleportTo(BarthilasPos.GetPositionX(), BarthilasPos.GetPositionY(), BarthilasPos.GetPositionZ(), BarthilasPos.GetOrientation());
+                                barthilas->SetHomePosition(BarthilasPos);
+                            }
+                        }
+                    }
+                    _barthilasrunProgress = data;
+                    break;
+            }
+
+            SaveToDB();
+        }
+
+        void SetGuidData(uint32 type, ObjectGuid data) override
+        {
+            if (type != DATA_SCARLET_THREAD_LOOTED || data != _scarletThreadGUID)
+                return;
+
+            _scarletThreadUsedLocations |= 1 << _scarletThreadLocation;
+            _scarletThreadGUID.Clear();
+            SpawnScarletThread();
+            SaveToDB();
+        }
+
+        void ReadSaveDataMore(std::istringstream& data) override
+        {
+            data >> _baronRunProgress;
+            data >> _baronRunTime;
+            data >> _zigguratState1;
+            data >> _zigguratState2;
+            data >> _zigguratState3;
+            data >> _slaughterProgress;
+            data >> _postboxesOpened;
+            data >> _barthilasrunProgress;
+
+            // Older saves contain either the thread mask or the two trap cooldowns.
+            std::array<time_t, 3> savedFields{};
+            std::size_t savedFieldCount = 0;
+            while (savedFieldCount < savedFields.size() && data >> savedFields[savedFieldCount])
+                ++savedFieldCount;
+
+            if (savedFieldCount == MAX_GATE_TRAPS)
+            {
+                _gateTrapCooldownEnd[GATE_TRAP_SCARLET] = savedFields[0];
+                _gateTrapCooldownEnd[GATE_TRAP_UNDEAD] = savedFields[1];
+            }
+            else
+            {
+                if (savedFieldCount && savedFields[0] >= 0 && savedFields[0] <= AllScarletThreadLocations)
+                    _scarletThreadUsedLocations = uint8(savedFields[0]);
+
+                if (savedFieldCount == savedFields.size())
+                {
+                    _gateTrapCooldownEnd[GATE_TRAP_SCARLET] = savedFields[1];
+                    _gateTrapCooldownEnd[GATE_TRAP_UNDEAD] = savedFields[2];
+                }
+            }
+
+            if (_baronRunTime)
+            {
+                events.ScheduleEvent(EVENT_BARON_TIME, 60s);
+            }
+
+            if (_slaughterProgress > SLAUGHTER_ABOMINATIONS && _slaughterProgress < SLAUGHTER_COMPLETE)
+            {
+                events.ScheduleEvent(EVENT_FORCE_SLAUGHTER_EVENT, 5s);
+            }
+
+            RestoreGateTrapCooldown(GATE_TRAP_SCARLET);
+            RestoreGateTrapCooldown(GATE_TRAP_UNDEAD);
+        }
+
+        void WriteSaveDataMore(std::ostringstream& data) override
+        {
+            data << _baronRunProgress << ' '
+                << _baronRunTime << ' '
+                << _zigguratState1 << ' '
+                << _zigguratState2 << ' '
+                << _zigguratState3 << ' '
+                << _slaughterProgress << ' '
+                << _postboxesOpened << ' '
+                << _barthilasrunProgress << ' '
+                << uint32(_scarletThreadUsedLocations) << ' '
+                << _gateTrapCooldownEnd[GATE_TRAP_SCARLET] << ' '
+                << _gateTrapCooldownEnd[GATE_TRAP_UNDEAD];
+        }
+
+        uint32 GetData(uint32 type) const override
+        {
+            switch (type)
+            {
+                case TYPE_ZIGGURAT1:
+                    return _zigguratState1;
+                case TYPE_ZIGGURAT2:
+                    return _zigguratState2;
+                case TYPE_ZIGGURAT3:
+                    return _zigguratState3;
+                case TYPE_MALLOW:
+                    return _postboxesOpened;
+                case TYPE_BARTHILAS_RUN:
+                    return _barthilasrunProgress;
+            }
+            return 0;
+        }
+
+        void Update(uint32 diff) override
+        {
+            events.Update(diff);
+
+            Map::PlayerList const& players = instance->GetPlayers();
+            // Loop over the two Gate traps, each one has up to three timers (trap reset, gate opening delay, critters spawning delay)
+            for (uint8 i = 0; i < 2; i++)
+            {
+                // if the gate is in cooldown, skip the other checks
+                if (_gateTrapsCooldown[i])
+                    continue;
+
+                // Check that the trap is not on cooldown, if so check if player/pet is in range
+                for (Map::PlayerList::const_iterator itr = players.begin(); itr != players.end(); ++itr)
+                {
+                    if (Player* player = itr->GetSource())
+                    {
+                        // should pet also trigger the trap? could not find any source for it
+                        if (!player->IsGameMaster() && player->IsWithinDist2d(aGateTrap[i].m_positionX, aGateTrap[i].m_positionY, 5.5f))
+                        {
+                            StartGateTrap(i, player);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            const int GATE1 = 0;
+            const int GATE2 = 1;
+
+            switch (events.ExecuteEvent())
+            {
+                case EVENT_GATE1_TRAP:
+                    _gateTrapsCooldown[GATE1] = false;
+                    _gateTrapCooldownEnd[GATE1] = 0;
+                    SaveToDB();
+                    break;
+                case EVENT_GATE2_TRAP:
+                    _gateTrapsCooldown[GATE2] = false;
+                    _gateTrapCooldownEnd[GATE2] = 0;
+                    SaveToDB();
+                    break;
+                case EVENT_GATE1_DELAY:
+                    gate_delay(GATE1);
+                    break;
+                case EVENT_GATE2_DELAY:
+                    gate_delay(GATE2);
+                    break;
+                case EVENT_GATE1_CRITTER_DELAY:
+                    gate_critter_delay(GATE1);
+                    break;
+                case EVENT_GATE2_CRITTER_DELAY:
+                    gate_critter_delay(GATE2);
+                    break;
+                case EVENT_BARON_TIME:
+                {
+                    --_baronRunTime;
+                    Creature* baron = instance->GetCreature(_baronRivendareGUID);
+                    if (baron && !baron->IsInCombat())
+                    {
+                        switch (_baronRunTime)
+                        {
+                            case 10:
+                                baron->AI()->Talk(SAY_BARON_10M);
+                                break;
+                            case 5:
+                                baron->AI()->Talk(SAY_BARON_5M);
+                                if (Creature* ysida = baron->FindNearestCreature(NPC_YSIDA, 50.0f))
+                                    ysida->AI()->SetData(1, 1);
+                                break;
+                            case 0:
+                                baron->AI()->Talk(SAY_BARON_0M);
+                                DoRemoveAurasDueToSpellOnPlayers(SPELL_BARON_ULTIMATUM);
+                                break;
+                        }
+                    }
+
+                    if (_baronRunTime > 0)
+                        events.ScheduleEvent(EVENT_BARON_TIME, 60s);
+                    else
+                        events.ScheduleEvent(EVENT_EXECUTE_PRISONER, 0ms);
+
+                    SaveToDB();
+                    break;
+                }
+                case EVENT_EXECUTE_PRISONER:
+                {
+                    Creature* baron = instance->GetCreature(_baronRivendareGUID);
+                    if (baron && baron->IsAlive())
+                    {
+                        if (!baron->IsInCombat())
+                        {
+                            baron->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK1H);
+                            if (Creature* ysida = baron->FindNearestCreature(NPC_YSIDA, 50.0f))
+                                Unit::Kill(baron, ysida);
+                        }
+                        else
+                            events.ScheduleEvent(EVENT_EXECUTE_PRISONER, 1s);
+                    }
+                    break;
+                }
+                case EVENT_SPAWN_MINDLESS:
+                {
+                    instance->SummonCreature(NPC_MINDLESS_UNDEAD, MindlessUndeadPos);
+                    break;
+                }
+                case EVENT_FORCE_SLAUGHTER_EVENT:
+                {
+                    Map::PlayerList const& PlayerList = instance->GetPlayers();
+                    if (!PlayerList.IsEmpty())
+                        for (Map::PlayerList::const_iterator i = PlayerList.begin(); i != PlayerList.end(); ++i)
+                            if (Player* player = i->GetSource())
+                                if (player->GetDistance2d(4034.97f, -3402.13f) < 50.0f)
+                                {
+                                    ProcessSlaughterEvent();
+                                    return;
+                                }
+
+                    events.ScheduleEvent(EVENT_FORCE_SLAUGHTER_EVENT, 3s);
+                    break;
+                }
+                case EVENT_SPAWN_BLACK_GUARD:
+                {
+                    for (uint8 i = 0; i < 5; ++i)
+                        if (Creature* guard = instance->SummonCreature(NPC_BLACK_GUARD, BlackGuardPos[i]))
+                        {
+                            guard->SetWalk(true);
+                            guard->GetMotionMaster()->MovePoint(0, BlackGuardPos[i + 5]);
+                            guard->SetHomePosition(BlackGuardPos[i + 5]);
+                            if (i == 0 && guard->AI())
+                                guard->AI()->Talk(SAY_BLACK_GUARD_INIT);
+                        }
+
+                    if (GameObject* gate = instance->GetGameObject(_zigguratDoorsGUID4))
+                        gate->SetGoState(GO_STATE_ACTIVE);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+    private:
+        uint32 _baronRunProgress;
+        uint32 _baronRunTime;
+        uint32 _zigguratState1;
+        uint32 _zigguratState2;
+        uint32 _zigguratState3;
+        uint32 _slaughterProgress;
+        uint32 _slaughterNPCs;
+        std::unordered_set<ObjectGuid::LowType> _abominationSpawnIds;
+        uint32 _barthilasrunProgress{};
+        uint32 _postboxesOpened;
+        EventMap events;
+
+        ObjectGuid _zigguratDoorsGUID1;
+        ObjectGuid _zigguratDoorsGUID2;
+        ObjectGuid _zigguratDoorsGUID3;
+        ObjectGuid _zigguratDoorsGUID4;
+        ObjectGuid _zigguratDoorsGUID5;
+        ObjectGuid _slaughterGateGUID;
+        ObjectGuid _gauntletGateGUID;
+        ObjectGuid _baronRivendareGUID;
+        ObjectGuid _barthilasGUID;
+
+        bool _gateTrapsCooldown[MAX_GATE_TRAPS];
+        bool _gateTrapNeedsRecovery[MAX_GATE_TRAP_GATES];
+        time_t _gateTrapCooldownEnd[MAX_GATE_TRAPS];
+        ObjectGuid _trappedPlayerGUIDs[MAX_GATE_TRAPS];
+        ObjectGuid _trapGatesGUIDs[MAX_GATE_TRAP_GATES];
+
+        bool HasLivingAbominations(ObjectGuid::LowType dyingSpawnId) const
+        {
+            auto const& creatures = instance->GetCreatureBySpawnIdStore();
+            for (ObjectGuid::LowType spawnId : _abominationSpawnIds)
+            {
+                if (spawnId == dyingSpawnId)
+                    continue;
+
+                auto const range = creatures.equal_range(spawnId);
+                if (range.first == range.second)
+                {
+                    // An unloaded spawn still blocks the event unless it is waiting to respawn.
+                    if (instance->GetCreatureRespawnTime(spawnId) <= GameTime::GetGameTime().count())
+                        return true;
+                }
+                else
+                    for (auto itr = range.first; itr != range.second; ++itr)
+                        if (itr->second->IsAlive())
+                            return true;
+            }
+
+            return false;
+        }
+
+        void AdvanceSlaughterEvent()
+        {
+            ++_slaughterProgress;
+            SaveToDB();
+            ProcessSlaughterEvent();
+        }
+
+        bool IsCurrentSlaughterTarget(uint32 entry) const
+        {
+            switch (_slaughterProgress)
+            {
+                case SLAUGHTER_RAMSTEIN:
+                    return entry == NPC_RAMSTEIN_THE_GORGER;
+                case SLAUGHTER_MINDLESS_UNDEAD:
+                    return entry == NPC_MINDLESS_UNDEAD;
+                case SLAUGHTER_BLACK_GUARD:
+                    return entry == NPC_BLACK_GUARD;
+                default:
+                    return false;
+            }
+        }
+
+        void HandleGateTrapCreate(GameObject* gate, uint8 index)
+        {
+            gate->AllowSaveToDB(true);
+            _trapGatesGUIDs[index] = gate->GetGUID();
+
+            // EventMap timers do not survive an instance unload. Finish an interrupted
+            // trap in its safe open state instead of restoring a permanently closed gate.
+            if (_gateTrapNeedsRecovery[index])
+            {
+                _gateTrapNeedsRecovery[index] = false;
+                gate->SetGoState(GO_STATE_ACTIVE);
+            }
+        }
+
+        void RestoreGateTrapCooldown(uint8 gate)
+        {
+            time_t now = GameTime::GetGameTime().count();
+            if (_gateTrapCooldownEnd[gate] <= now)
+            {
+                _gateTrapCooldownEnd[gate] = 0;
+                return;
+            }
+
+            _gateTrapsCooldown[gate] = true;
+            uint32 eventId = gate == GATE_TRAP_SCARLET ? EVENT_GATE1_TRAP : EVENT_GATE2_TRAP;
+            events.ScheduleEvent(eventId, Seconds(_gateTrapCooldownEnd[gate] - now));
+        }
+
+        void StartGateTrap(uint8 gate, Player* player)
+        {
+            _gateTrapsCooldown[gate] = true;
+            _gateTrapCooldownEnd[gate] = GameTime::GetGameTime().count() + GATE_TRAP_COOLDOWN;
+            _trappedPlayerGUIDs[gate] = player->GetGUID();
+
+            HandleGameObject(_trapGatesGUIDs[2 * gate], false);
+            HandleGameObject(_trapGatesGUIDs[2 * gate + 1], false);
+
+            if (gate == GATE_TRAP_SCARLET)
+            {
+                events.ScheduleEvent(EVENT_GATE1_TRAP, Seconds(GATE_TRAP_COOLDOWN));
+                events.ScheduleEvent(EVENT_GATE1_DELAY, 20s);
+                events.ScheduleEvent(EVENT_GATE1_CRITTER_DELAY, 2s);
+            }
+            else
+            {
+                events.ScheduleEvent(EVENT_GATE2_TRAP, Seconds(GATE_TRAP_COOLDOWN));
+                events.ScheduleEvent(EVENT_GATE2_DELAY, 20s);
+                events.ScheduleEvent(EVENT_GATE2_CRITTER_DELAY, 2s);
+            }
+
+            SaveToDB();
+        }
+
+        uint8 _scarletThreadUsedLocations;
+        uint8 _scarletThreadLocation;
+        ObjectGuid _scarletThreadGUID;
+
+        void SpawnScarletThread()
+        {
+            if (_scarletThreadGUID || _scarletThreadUsedLocations == AllScarletThreadLocations)
+                return;
+
+            std::array<uint8, ScarletThreadSpawnCount> availableLocations{};
+            uint8 availableLocationCount = 0;
+            for (uint8 location = 0; location < ScarletThreadSpawnCount; ++location)
+                if (!(_scarletThreadUsedLocations & (1 << location)))
+                    availableLocations[availableLocationCount++] = location;
+
+            if (!availableLocationCount)
+                return;
+
+            _scarletThreadLocation = availableLocations[urand(0, availableLocationCount - 1)];
+
+            std::list<GameObject*> threads;
+            instance->SummonGameObjectGroup(_scarletThreadLocation, &threads);
+            if (threads.empty())
+                return;
+
+            _scarletThreadGUID = threads.front()->GetGUID();
+            threads.front()->setActive(true);
+        }
+
+        void gate_delay(int gate)
+        {
+            HandleGameObject(_trapGatesGUIDs[2 * gate], true);
+            HandleGameObject(_trapGatesGUIDs[2 * gate + 1], true);
+        }
+
+        void gate_critter_delay(int gate)
+        {
+            if (_trappedPlayerGUIDs[gate])
+            {
+                if (Player* pPlayer = ObjectAccessor::GetPlayer(instance, _trappedPlayerGUIDs[gate]))
+                {
+                    DoSpawnPlaguedCritters(gate, pPlayer);
+                }
+            }
+        }
+    };
+
+    InstanceScript* GetInstanceScript(InstanceMap* map) const override
+    {
+        return new instance_stratholme_InstanceMapScript(map);
+    }
+};
+
+class go_enchanted_scarlet_thread : public GameObjectScript
+{
+public:
+    go_enchanted_scarlet_thread() : GameObjectScript("go_enchanted_scarlet_thread") { }
+
+    void OnLootStateChanged(GameObject* go, uint32 state, Unit* /*unit*/) override
+    {
+        if (state != GO_JUST_DEACTIVATED)
+            return;
+
+        for (LootItem const& item : go->loot.quest_items)
+        {
+            if (item.itemid != ITEM_ENCHANTED_SCARLET_THREAD || !item.is_looted)
+                continue;
+
+            if (InstanceScript* instance = go->GetInstanceScript())
+                instance->SetGuidData(DATA_SCARLET_THREAD_LOOTED, go->GetGUID());
+
+            return;
+        }
+
+        go->SetLootState(GO_READY);
+    }
+};
+
+void AddSC_instance_stratholme()
+{
+    new instance_stratholme();
+    new go_enchanted_scarlet_thread();
+}

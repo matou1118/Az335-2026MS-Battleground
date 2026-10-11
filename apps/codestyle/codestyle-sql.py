@@ -1,0 +1,636 @@
+import io
+import os
+import sys
+import re
+import glob
+import subprocess
+
+base_dir = os.getcwd()
+
+# Get the pending directory of the project
+pattern = os.path.join(base_dir, 'data/sql/updates/pending_db_*')
+src_directory = glob.glob(pattern)
+
+# Get files from base dir
+base_pattern = os.path.join(base_dir, 'data/sql/base/db_*')
+base_directory = glob.glob(base_pattern)
+
+# Get files from archive dir
+archive_pattern = os.path.join(base_dir, 'data/sql/archive/db_*')
+archive_directory = glob.glob(archive_pattern)
+
+# Global variables
+error_handler = False
+results = {
+    "Multiple blank lines check": "Passed",
+    "Trailing whitespace check": "Passed",
+    "SQL codestyle check": "Passed",
+    "INSERT, UPDATE & DELETE safety usage check": "Passed",
+    "Missing semicolon check": "Passed",
+    "Backtick check": "Passed",
+    "Directory check": "Passed",
+    "Table engine check": "Passed"
+}
+
+# Collect all files in all directories
+def collect_files_from_directories(directories: list) -> list:
+    all_files = []
+    for directory in directories:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if not file.endswith('.sh'):  # Skip .sh files
+                    all_files.append(os.path.join(root, file))
+    return all_files
+
+# Used to find changed or added files compared to master.
+def get_changed_files() -> list:
+    subprocess.run(["git", "fetch", "origin", "master"], check=True)
+    result = subprocess.run(
+        ["git", "diff", "--name-status", "origin/master"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    changed_files = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        status, path = line.split(maxsplit=1)
+        if status in ("A", "M"):
+            changed_files.append(path)
+    return changed_files
+
+# Main function to parse all the files of the project
+def parsing_file(files: list) -> None:
+    print("Starting AzerothCore SQL Codestyle check...")
+    print(" ")
+    print("Please read the SQL Standards for AzerothCore:")
+    print("https://www.azerothcore.org/wiki/sql-standards")
+    print(" ")
+
+    # Iterate over all files in data/sql/updates/pending_db_*
+    for file_path in files:
+        if "base" not in file_path and "archive" not in file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    multiple_blank_lines_check(file, file_path)
+                    trailing_whitespace_check(file, file_path)
+                    sql_check(file, file_path)
+                    insert_delete_safety_check(file, file_path)
+                    semicolon_check(file, file_path)
+                    backtick_check(file, file_path)
+                    non_innodb_engine_check(file, file_path)
+            except UnicodeDecodeError:
+                print(f"\n❌ Could not decode file {file_path}")
+                sys.exit(1)
+
+    # Make sure we only check changed or added files when we work with base/archive paths
+    changed_files = get_changed_files()
+    # Iterate over all file paths
+    for file_path in changed_files:
+        if "base" in file_path or "archive" in file_path:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    directory_check(f, file_path)
+            except UnicodeDecodeError:
+                print(f"\n❌ Could not decode file {file_path}")
+                sys.exit(1)
+
+    # Output the results
+    print("\n ")
+    for check, result in results.items():
+        print(f"{check} : {result}")
+    if error_handler:
+        print("\n ")
+        print("\n❌ Please fix the codestyle issues above.")
+        sys.exit(1)
+    else:
+        print("\n ")
+        print(f"\n✅ Everything looks good")
+
+# Codestyle patterns checking for multiple blank lines
+def multiple_blank_lines_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)  # Reset file pointer to the beginning
+    check_failed = False
+    consecutive_blank_lines = 0
+    # Parse all the file
+    for line_number, line in enumerate(file, start = 1):
+        if line.strip() == '':
+            consecutive_blank_lines += 1
+            if consecutive_blank_lines > 1:
+                print(f"❌ Multiple blank lines found in {file_path} at line {line_number - 1}")
+                check_failed = True
+        else:
+            consecutive_blank_lines = 0
+    # Additional check for the end of the file
+    if consecutive_blank_lines >= 1:
+        print(f"❌ Multiple blank lines found at the end of: {file_path}")
+        check_failed = True
+    # Handle the script error and update the result output
+    if check_failed:
+        error_handler = True
+        results["Multiple blank lines check"] = "Failed"
+
+# Codestyle patterns checking for whitespace at the end of the lines
+def trailing_whitespace_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)  # Reset file pointer to the beginning
+    check_failed = False
+    # Parse all the file
+    for line_number, line in enumerate(file, start = 1):
+        if line.endswith(' \n'):
+            print(f"❌ Trailing whitespace found: {file_path} at line {line_number}")
+            check_failed = True
+    if check_failed:
+        error_handler = True
+        results["Trailing whitespace check"] = "Failed"
+
+# Codestyle patterns checking for various codestyle issues
+def sql_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)  # Reset file pointer to the beginning
+    check_failed = False
+
+    # Parse all the file
+    for line_number, line in enumerate(file, start = 1):
+        if [match for match in ['broadcast_text'] if match in line]:
+            print(
+                f"❌ DON'T EDIT broadcast_text TABLE UNLESS YOU KNOW WHAT YOU ARE DOING!\nThis error can safely be ignored if the changes are approved to be sniffed: {file_path} at line {line_number}")
+            check_failed = True
+        if "EntryOrGuid" in line:
+            print(
+                f"❌ Please use entryorguid syntax instead of EntryOrGuid in {file_path} at line {line_number}\nWe recommend to use keira to have the right syntax in auto-query generation")
+            check_failed = True
+        if [match for match in [';;'] if match in line]:
+            print(
+                f"❌ Double semicolon (;;) found in {file_path} at line {line_number}")
+            check_failed = True
+        if re.match(r"\t", line):
+            print(
+                f"❌ Tab found! Replace it to 4 spaces: {file_path} at line {line_number}")
+            check_failed = True
+
+        last_line = line[-1].strip()
+        if last_line:
+            print(
+                f"❌ The last line is not a newline. Please add a newline: {file_path}")
+            check_failed = True
+
+    # Handle the script error and update the result output
+    if check_failed:
+        error_handler = True
+        results["SQL codestyle check"] = "Failed"
+
+def insert_delete_safety_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)  # Reset file pointer to the beginning
+    not_delete = ["creature_template", "gameobject_template", "item_template", "quest_template"]
+    check_failed = False
+    previous_line = ""
+
+    # Parse all the file
+    for line_number, line in enumerate(file, start = 1):
+        if line.strip().startswith("--"):
+            continue
+        if "INSERT" in line and "DELETE" not in previous_line:
+            print(f"❌ No DELETE keyword found before the INSERT in {file_path} at line {line_number}\nIf this error is intended, please notify a maintainer")
+            check_failed = True
+        previous_line = line
+        match = re.match(r"DELETE FROM\s+`([^`]+)`", line, re.IGNORECASE)
+        if match:
+            table_name = match.group(1)
+            if table_name in not_delete:
+                print(
+                    f"❌ Entries from {table_name} should not be deleted! {file_path} at line {line_number}\nIf this error is intended, please notify a maintainer")
+                check_failed = True
+
+    if spawn_filter_check(file, file_path):
+        check_failed = True
+
+    # Handle the script error and update the result output
+    if check_failed:
+        error_handler = True
+        results["INSERT, UPDATE & DELETE safety usage check"] = "Failed"
+
+# Strip a trailing "-- ..." line comment while ignoring any "--" that appears
+# inside a single- or double-quoted string literal (e.g. descriptions).
+def strip_inline_comment(text: str) -> str:
+    in_single_quote = False
+    in_double_quote = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        # Skip backslash-escaped characters inside string literals (e.g. \')
+        if char == '\\' and (in_single_quote or in_double_quote):
+            index += 2
+            continue
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+        elif char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+        elif (char == '-' and index + 1 < len(text) and text[index + 1] == '-'
+              and not in_single_quote and not in_double_quote):
+            return text[:index].strip()
+        index += 1
+    return text.strip()
+
+# Count how many parentheses are still open on a line, ignoring any that appear
+# inside string literals. A positive result means a value tuple continues on the
+# following line(s).
+def open_paren_balance(text: str) -> int:
+    without_strings = re.sub(r"'(?:\\.|[^'])*'", "", text)
+    without_strings = re.sub(r'"(?:\\.|[^"])*"', "", without_strings)
+    return without_strings.count('(') - without_strings.count(')')
+
+SPAWN_STATEMENT_START = re.compile(r"\b(?:DELETE|UPDATE)\b", re.IGNORECASE)
+SPAWN_TABLE = r"(?:`(creature|gameobject)`|\b(creature|gameobject)\b)"
+# The target list, captured whole rather than matched table-first, so a spawn table named second
+# in a join or a comma list is seen too. Anchored and requiring FROM/SET, which keeps the
+# `ON DELETE CASCADE` and `ON UPDATE CURRENT_TIMESTAMP` of a DDL statement out.
+SPAWN_DELETE_TARGETS = re.compile(
+    r"^\s*DELETE\s+(?:(?:LOW_PRIORITY|QUICK|IGNORE)\s+)*(.*?)\bFROM\s+(.*?)(?:\bWHERE\b|$)",
+    re.IGNORECASE | re.DOTALL)
+SPAWN_UPDATE_TARGETS = re.compile(
+    r"^\s*UPDATE\s+(?:(?:LOW_PRIORITY|IGNORE)\s+)*(.*?)\bSET\b", re.IGNORECASE | re.DOTALL)
+# One table, optionally aliased. Anything else is a join, a comma list or a schema qualifier.
+PLAIN_SPAWN_TARGET = re.compile(rf"^\s*{SPAWN_TABLE}(?:\s+(?:AS\s+)?`?\w+`?)?\s*$", re.IGNORECASE)
+# Only these bound a statement to known rows: `guid` > 0 or `id` != 5 match without limiting.
+SPAWN_FILTER_OPERATORS = r"(?:=|\bIN\b|\bBETWEEN\b)"
+
+# The column token has to be bounded on both sides, otherwise `guid` would satisfy the `id`
+# requirement and `id1`/`id2`/`id3` (the pre-rename creature columns) would pass as `id`.
+def has_column_filter(statement: str, column: str) -> bool:
+    pattern = rf"(?:`{column}`|(?<![\w@`]){column}(?![\w`]))\s*{SPAWN_FILTER_OPERATORS}"
+    return re.search(pattern, statement, re.IGNORECASE) is not None
+
+SPAWN_TABLE_MENTION = re.compile(SPAWN_TABLE, re.IGNORECASE)
+SUBQUERY_START = re.compile(r"\(\s*(?:SELECT|WITH)\b", re.IGNORECASE)
+
+# A subquery bounds its own rows, not the ones the statement touches, so its predicates must not be
+# read as filters. Parentheses that merely group a predicate are kept, those are part of the filter.
+def strip_subqueries(text: str) -> str:
+    while True:
+        match = SUBQUERY_START.search(text)
+        if not match:
+            return text
+        depth = 0
+        for index in range(match.start(), len(text)):
+            if text[index] == '(':
+                depth += 1
+            elif text[index] == ')':
+                depth -= 1
+                if depth == 0:
+                    text = text[:match.start()] + " " + text[index + 1:]
+                    break
+        else:
+            return text  # unbalanced, so leave it whole rather than judge half a statement
+
+# Only the WHERE clause decides which rows are hit, so the `SET id` = ... of an UPDATE must not
+# count as a filter. Returns "" when there is no WHERE at all, which then reads as unfiltered.
+def where_clause(statement: str) -> str:
+    # A backticked `where` column would otherwise split the statement mid-SET
+    parts = re.split(r"(?<!`)\bWHERE\b(?!`)", strip_subqueries(statement), maxsplit = 1, flags = re.IGNORECASE)
+    return parts[1] if len(parts) > 1 else ""
+
+# Walk the line left to right dropping quoted literals and both comment styles, so a "--", a "/*"
+# or a ";" inside a string is not taken for a comment or a statement terminator. Returns the
+# sanitised text plus whether a block comment is left open for the following lines.
+def strip_sql_noise(text: str, in_block_comment: bool) -> tuple:
+    sanitized = []
+    index = 0
+    while index < len(text):
+        if in_block_comment:
+            closing = text.find('*/', index)
+            if closing == -1:
+                break
+            in_block_comment = False
+            index = closing + 2
+            sanitized.append(' ')
+            continue
+        if text.startswith('/*', index):
+            in_block_comment = True
+            index += 2
+            continue
+        if text.startswith('--', index) or text[index] == '#':
+            break
+        if text[index] in "'\"":
+            quote = text[index]
+            index += 1
+            while index < len(text):
+                if text[index] == '\\':
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    index += 1
+                    break
+                index += 1
+            sanitized.append("''")
+            continue
+        sanitized.append(text[index])
+        index += 1
+    return ''.join(sanitized).strip(), in_block_comment
+
+# Spawns in `creature` and `gameobject` must be matched by both `id` and `guid`: a guid-only
+# statement hits whatever spawn owns that guid today, an id-only one hits every spawn of that entry
+# in the world. Returns whether a violation was found; the caller owns the result state.
+def spawn_filter_check(file: io, file_path: str) -> bool:
+    file.seek(0)  # Reset file pointer to the beginning
+    check_failed = False
+    in_block_comment = False
+    statement = ""
+    statement_line = 0
+
+    def report(clause: str, line_number: int, statement_name: str) -> bool:
+        # A disjunction needs real boolean parsing to judge, so it is refused rather than guessed at
+        if re.search(r"\bOR\b", clause, re.IGNORECASE):
+            print(f"❌ {statement_name} must not use OR. Use IN, or split it into one statement per "
+                  f"spawn. {file_path} at line {line_number}\n"
+                  f"If this error is intended, please notify a maintainer")
+            return True
+        missing = [column for column in ("id", "guid") if not has_column_filter(clause, column)]
+        if not missing:
+            return False
+        columns = " and ".join(f"`{column}`" for column in missing)
+        print(f"❌ {statement_name} must filter on both `id` and `guid` (missing: {columns}). "
+              f"{file_path} at line {line_number}\nIf this error is intended, please notify a maintainer")
+        return True
+
+    # Which rows a join or a comma list touches cannot be judged without resolving aliases, and a
+    # schema qualifier is wrong anyway since the database name is configurable, so the form is
+    # refused rather than guessed at.
+    def report_indirect_target(targets: str, line_number: int, table: str) -> bool:
+        print(f"❌ A statement touching `{table}` must name it as its only target. Joins, "
+              f"comma-separated targets and schema qualifiers are not supported. "
+              f"{file_path} at line {line_number}\nIf this error is intended, please notify a maintainer")
+        return True
+
+    # Judged once the whole statement is accumulated, since DELETE, FROM and the table name can
+    # each sit on their own line
+    def report_when_spawn_statement(text: str, line_number: int) -> bool:
+        statement = strip_subqueries(text)
+        for pattern, keyword in ((SPAWN_DELETE_TARGETS, "DELETE FROM"), (SPAWN_UPDATE_TARGETS, "UPDATE")):
+            match = pattern.match(statement)
+            if not match:
+                continue
+            # A multi-table DELETE names its targets before FROM, so both halves have to be plain
+            targets = " ".join(group for group in match.groups() if group).strip()
+            table = SPAWN_TABLE_MENTION.search(targets)
+            if not table:
+                return False
+            name = table.group(1) or table.group(2)
+            if not PLAIN_SPAWN_TARGET.match(targets):
+                return report_indirect_target(targets, line_number, name)
+            return report(where_clause(statement), line_number, f"{keyword} `{name}`")
+        return False
+
+    for line_number, line in enumerate(file, start = 1):
+        text, in_block_comment = strip_sql_noise(line.strip(), in_block_comment)
+        if not text:
+            continue
+
+        remainder = text
+        while remainder:
+            if statement:
+                segment, terminator, rest = remainder.partition(';')
+                statement += " " + segment
+            else:
+                match = SPAWN_STATEMENT_START.search(remainder)
+                if not match:
+                    break
+                statement_line = line_number
+                segment, terminator, rest = remainder[match.start():].partition(';')
+                statement = segment
+            if not terminator:
+                break
+            if report_when_spawn_statement(statement, statement_line):
+                check_failed = True
+            statement = ""
+            remainder = rest.strip()
+
+    # An unterminated statement is reported by semicolon_check, but still judge it here
+    if statement and report_when_spawn_statement(statement, statement_line):
+        check_failed = True
+
+    return check_failed
+
+def semicolon_check(file: io, file_path: str) -> None:
+    global error_handler, results
+
+    file.seek(0)  # Reset file pointer to the start
+    check_failed = False
+
+    query_open = False
+    in_block_comment = False
+    inside_values_block = False
+
+    lines = file.readlines()
+    total_lines = len(lines)
+
+    def get_next_non_blank_line(start):
+        """ Get the next non-blank, non-comment line starting from `start` """
+        for idx in range(start, total_lines):
+            next_line = lines[idx].strip()
+            if next_line and not next_line.startswith('--') and not next_line.startswith('/*'):
+                return next_line
+        return None
+
+    for line_number, line in enumerate(lines, start=1):
+        stripped_line = line.strip()
+
+        # Skip single-line comments
+        if stripped_line.startswith('--'):
+            continue
+
+        # Handle block comments
+        if in_block_comment:
+            if '*/' in stripped_line:
+                in_block_comment = False
+                stripped_line = stripped_line.split('*/', 1)[1].strip()
+            else:
+                continue
+        else:
+            if '/*' in stripped_line:
+                query_open = False  # Reset query state at start of block comment
+                in_block_comment = True
+                stripped_line = stripped_line.split('/*', 1)[0].strip()
+
+        # Skip empty lines (unless inside values block)
+        if not stripped_line and not inside_values_block:
+            continue
+
+        # Remove inline comments after SQL (ignoring "--" inside string literals)
+        stripped_line = strip_inline_comment(stripped_line)
+
+        if stripped_line.upper().startswith("SET") and not stripped_line.endswith(";"):
+            print(f"❌ Missing semicolon in {file_path} at line {line_number}")
+            check_failed = True
+
+        # Detect query start
+        if not query_open and any(keyword in stripped_line.upper() for keyword in ["SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE"]):
+            query_open = True
+
+        # Detect start of a VALUES block
+        upper_line = stripped_line.upper()
+        if any(kw in upper_line for kw in ["INSERT", "REPLACE"]) and "VALUES" in upper_line:
+            query_open = True  # Ensure query is marked open too
+            # Look at whatever follows the VALUES keyword on this same line
+            tail = stripped_line[upper_line.rfind("VALUES") + len("VALUES"):].strip()
+            if not tail or tail.endswith(','):
+                # Multi-line VALUES block: value rows follow on subsequent lines
+                inside_values_block = True
+            elif open_paren_balance(stripped_line) > 0:
+                # A value tuple is still open (row split across lines, or the line
+                # ends with '('); leave the statement open so the terminator is
+                # validated once the tuple closes on a following line.
+                pass
+            elif tail.endswith(';'):
+                # Complete single-line insert
+                query_open = False
+            else:
+                # Inline insert whose value tuple(s) are complete on this same line
+                # but the statement is not terminated with a semicolon
+                print(f"❌ Missing semicolon in {file_path} at line {line_number}")
+                check_failed = True
+                query_open = False
+
+        if inside_values_block:
+            if not stripped_line:
+                continue  # Allow blank lines inside VALUES block
+
+            if stripped_line.startswith('('):
+                # Get next non-blank line to detect if we're at the last row
+                next_line = get_next_non_blank_line(line_number)
+                
+                if next_line and next_line.startswith('('):
+                    # Expect comma if another row follows
+                    if not stripped_line.endswith(','):
+                        print(f"❌ Missing comma in {file_path} at line {line_number}")
+                        check_failed = True
+                else:
+                    # Expect semicolon if this is the final row
+                    if not stripped_line.endswith(';'):
+                        print(f"❌ Missing semicolon in {file_path} at line {line_number}")
+                        check_failed = True
+                        inside_values_block = False
+                        query_open = False
+                    else:
+                        inside_values_block = False  # Close block if semicolon was found
+
+        elif query_open and not inside_values_block:
+            # Normal query handling (outside multi-row VALUES block)
+            if line_number == total_lines and not stripped_line.endswith(';'):
+                print(f"❌ Missing semicolon in {file_path} at the last line {line_number}")
+                check_failed = True
+                query_open = False
+            elif stripped_line.endswith(';'):
+                query_open = False
+
+    if check_failed:
+        error_handler = True
+        results["Missing semicolon check"] = "Failed"
+
+def backtick_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)
+    check_failed = False
+
+    # Find SQL clauses
+    pattern = re.compile(
+        r'\b(SELECT|FROM|JOIN|WHERE|GROUP BY|ORDER BY|DELETE FROM|UPDATE|INSERT INTO|SET|REPLACE|REPLACE INTO)\s+(.*?)(?=;$|(?=\b(?:WHERE|SET|VALUES)\b)|$)',  
+        re.IGNORECASE | re.DOTALL
+    )
+
+    # Make sure to ignore values enclosed in single- and doublequotes
+    quote_pattern = re.compile(r"'(?:\\'|[^'])*'|\"(?:\\\"|[^\"])*\"")
+
+    for line_number, line in enumerate(file, start=1):
+        # Ignore comments
+        if line.strip().startswith('--'):
+            continue
+
+        # Sanitize single- and doublequotes to prevent false positives
+        sanitized_line = quote_pattern.sub('', line)
+        # Strip inline comments (safe to do after removing quoted strings)
+        sanitized_line = re.sub(r'--.*$', '', sanitized_line)
+        matches = pattern.findall(sanitized_line)
+        
+        for clause, content in matches:
+            # Find all words and exclude @variables
+            words = re.findall(r'\b(?<!@)([a-zA-Z_][a-zA-Z0-9_]*)\b', content)
+
+            for word in words:
+                # Skip MySQL keywords
+                if word.upper() in {"SELECT", "FROM", "JOIN", "WHERE", "GROUP", "BY", "ORDER",
+                                    "DELETE", "UPDATE", "INSERT", "INTO", "SET", "VALUES", "AND",
+                                    "IN", "OR", "REPLACE", "NOT", "BETWEEN",
+                                    "DISTINCT", "HAVING", "LIMIT", "OFFSET", "AS", "ON", "INNER",
+                                    "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL",
+                                    "EXISTS", "LIKE", "IS", "NULL", "UNION", "ALL", "ASC", "DESC",
+                                    "CASE", "WHEN", "THEN", "ELSE", "END", "CREATE", "TABLE",
+                                    "ALTER", "DROP", "DATABASE", "INDEX", "VIEW", "TRIGGER",
+                                    "PROCEDURE", "FUNCTION", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
+                                    "CONSTRAINT", "DEFAULT", "AUTO_INCREMENT", "UNIQUE", "CHECK",
+                                    "SHOW", "DESCRIBE", "EXPLAIN", "USE", "GRANT", "REVOKE",
+                                    "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "LOCK", "UNLOCK",
+                                    "WITH", "RECURSIVE", "COLUMN", "ENGINE", "CHARSET", "COLLATE",
+                                    "IF", "ELSEIF", "LOOP", "WHILE", "DO", "HANDLER", "LEAVE",
+                                    "ITERATE", "DECLARE", "CURSOR", "FETCH", "OPEN", "CLOSE"}:
+                    continue
+
+                # Make sure the word is enclosed in backticks
+                if not re.search(rf'`{re.escape(word)}`', content):
+                    print(f"❌ Missing backticks around ({word}). {file_path} at line {line_number}")
+                    check_failed = True
+
+    if check_failed:
+        error_handler = True
+        results["Backtick check"] = "Failed"
+
+def directory_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)
+    check_failed = False
+
+    # Normalize path and split into parts
+    normalized_path = os.path.normpath(file_path)  # handles / and \
+    path_parts = normalized_path.split(os.sep)
+
+    # Fail if '/base/' is part of the path
+    if "base" in path_parts:
+        print(f"❗ {file_path} is changed/added in the base directory.\nIf this is intended, please notify a maintainer.")
+        check_failed = True
+
+    # Fail if '/archive/' is part of the path
+    if "archive" in path_parts:
+        print(f"❗ {file_path} is changed/added in the archive directory.\nIf this is intended, please notify a maintainer.")
+        check_failed = True
+
+    if check_failed:
+        error_handler = True
+        results["Directory check"] = "Failed"
+
+def non_innodb_engine_check(file: io, file_path: str) -> None:
+    global error_handler, results
+    file.seek(0)
+    check_failed = False
+
+    engine_pattern = re.compile(r'ENGINE\s*=\s*([a-zA-Z0-9_]+)', re.IGNORECASE)
+
+    for line_number, line in enumerate(file, start=1):
+        match = engine_pattern.search(line)
+        if match:
+            engine = match.group(1).lower()
+            if engine != "innodb":
+                print(f"❌ Non-InnoDB engine found: '{engine}' in {file_path} at line {line_number}")
+                check_failed = True
+
+    if check_failed:
+        error_handler = True
+        results["Table engine check"] = "Failed"    
+
+# Collect all files from matching directories
+all_files = collect_files_from_directories(src_directory) + collect_files_from_directories(base_directory) + collect_files_from_directories(archive_directory)
+
+# Main function
+parsing_file(all_files)
