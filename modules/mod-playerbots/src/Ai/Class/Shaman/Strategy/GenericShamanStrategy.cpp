@@ -80,7 +80,7 @@ private:
     {
         return new ActionNode("windfury totem",
                               /*P*/ {},
-                              /*A*/ { NextAction("grounding totem") },
+                              /*A*/ { NextAction("set grounding totem") },
                               /*C*/ {});
     }
     static ActionNode* cleanse_spirit([[maybe_unused]] PlayerbotAI* botAI)
@@ -118,6 +118,10 @@ void GenericShamanStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("wind shear", { NextAction("wind shear", 23.0f), }));
     triggers.push_back(new TriggerNode("wind shear on enemy healer", { NextAction("wind shear on enemy healer", 23.0f), }));
     triggers.push_back(new TriggerNode("purge", { NextAction("purge", ACTION_DISPEL), }));
+        // Frost Shock had a registered trigger ("frost shock snare") and a registered
+        // action but no TriggerNode joining them, so no shaman ever applied its only
+        // ranged snare.
+        triggers.push_back(new TriggerNode("frost shock snare", { NextAction("frost shock", 22.0f), }));
     triggers.push_back(new TriggerNode("new pet", { NextAction("set pet stance", 65.0f), }));
 }
 
@@ -162,8 +166,8 @@ void ShamanAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         // Chain Lightning behind an unrelated no-cd trigger.
         triggers.push_back(new TriggerNode("medium aoe", {
             NextAction("fire nova", 23.0f),
-            NextAction("stormbolt", 21.5f),
-            NextAction("magma", 20.5f)
+            NextAction("thunderstorm", 21.5f),
+            NextAction("magma totem", 20.5f)
         }));
         // Two enemies is the common case in a battleground, not a rare one.
         triggers.push_back(new TriggerNode("light aoe", { NextAction("flame shock", 21.0f) }));
@@ -179,11 +183,11 @@ void ShamanAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         // are on it - previously the only AoE it owned needed three in a tight ball.
         triggers.push_back(new TriggerNode("light aoe", {
             NextAction("flame shock", 21.0f),
-            NextAction("magma", 20.0f)
+            NextAction("magma totem", 20.0f)
         }));
         triggers.push_back(new TriggerNode("medium aoe", {
             NextAction("fire nova", 23.0f),
-            NextAction("magma", 20.0f)
+            NextAction("magma totem", 20.0f)
         }));
     }
     // Resto AoE handled by "Healer DPS" Strategy

@@ -78,7 +78,7 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("has aggro", { NextAction("concussive shot", 20.0f) }));
     triggers.push_back(new TriggerNode("low tank threat", { NextAction("misdirection on main tank", 27.0f) }));
     triggers.push_back(new TriggerNode("low health", { NextAction("deterrence", 35.0f) }));
-    triggers.push_back(new TriggerNode("concussive shot on snare target", { NextAction("concussive shot on snare target", 21.0f) }));
+    triggers.push_back(new TriggerNode("concussive shot on snare target", { NextAction("concussive shot", 21.0f) }));
     triggers.push_back(new TriggerNode("medium threat", { NextAction("feign death", 35.0f) }));
     triggers.push_back(new TriggerNode("hunters pet medium health", { NextAction("mend pet", 22.0f) }));
     triggers.push_back(new TriggerNode("hunters pet low health", { NextAction("mend pet", 21.0f) }));
@@ -100,6 +100,13 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("trap weave", { NextAction("explosive trap", 32.0f) }));
     triggers.push_back(new TriggerNode("immolation trap no cd", { NextAction("immolation trap", 32.5f) }));
     triggers.push_back(new TriggerNode("freezing trap", { NextAction("freezing trap", 33.0f) }));
+    // Scatter Shot: the hunter's only ranged disorient - survival-talent gated, and
+    // the on-healer copy mirrors the interrupt family every other class runs.
+    triggers.push_back(new TriggerNode("scatter shot", { NextAction("scatter shot", 39.0f) }));
+    triggers.push_back(new TriggerNode("scatter shot on enemy healer",
+                                      { NextAction("scatter shot on enemy healer", 38.5f) }));
+    // Master's Call: pet-freedom the moment a snare or root lands on the bot itself.
+    triggers.push_back(new TriggerNode("self snared", { NextAction("master's call", 40.0f) }));
 
     // Pet stings. serpent/scorpid/wyvern were all registered; only serpent was
     // wired up, so a hunter whose serpent buff wore off had nothing to reapply
@@ -109,6 +116,7 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     // Ranged-based Triggers
     triggers.push_back(new TriggerNode("enemy within melee", { NextAction("explosive trap", 37.0f),
+                                                               NextAction("frost trap", 36.0f),
                                                                NextAction("mongoose bite", 22.0f),
                                                                NextAction("wing clip", 21.0f) }));
 
@@ -129,7 +137,7 @@ void AoEHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void HunterCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("scare beast", { NextAction("scare beast on cc", 23.0f) }));
-    triggers.push_back(new TriggerNode("freezing trap", { NextAction("freezing trap on cc", 23.0f) }));
+    triggers.push_back(new TriggerNode("freezing trap", { NextAction("freezing trap", 23.0f) }));
 }
 
 void HunterTrapWeaveStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

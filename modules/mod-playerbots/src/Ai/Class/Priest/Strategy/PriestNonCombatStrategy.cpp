@@ -19,6 +19,15 @@ void PriestNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode("inner fire",{ NextAction("inner fire", 10.0f) }));
+    // Shadowguard / Feedback / Touch of Weakness are priest racial self-buffs. Their
+    // triggers and actions were registered but no strategy ever created the nodes, so
+    // they were never refreshed. Wired exactly like inner fire.
+    triggers.push_back(
+        new TriggerNode("shadowguard",{ NextAction("shadowguard", 9.0f) }));
+    triggers.push_back(
+        new TriggerNode("feedback",{ NextAction("feedback", 8.0f) }));
+    triggers.push_back(
+        new TriggerNode("touch of weakness",{ NextAction("touch of weakness", 7.0f) }));
     triggers.push_back(
         new TriggerNode("vampiric embrace", { NextAction("vampiric embrace", 16.0f) }));
     triggers.push_back(new TriggerNode(

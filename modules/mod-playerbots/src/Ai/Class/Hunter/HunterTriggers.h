@@ -131,6 +131,25 @@ public:
     ConcussiveShotOnSnareTargetTrigger(PlayerbotAI* botAI) : SnareTargetTrigger(botAI, "concussive shot") {}
 };
 
+class ScatterShotInterruptSpellTrigger : public InterruptSpellTrigger
+{
+public:
+    ScatterShotInterruptSpellTrigger(PlayerbotAI* botAI) : InterruptSpellTrigger(botAI, "scatter shot") {}
+};
+
+class ScatterShotOnEnemyHealerTrigger : public InterruptEnemyHealerTrigger
+{
+public:
+    ScatterShotOnEnemyHealerTrigger(PlayerbotAI* botAI) : InterruptEnemyHealerTrigger(botAI, "scatter shot") {}
+};
+
+class SelfSnaredTrigger : public Trigger
+{
+public:
+    SelfSnaredTrigger(PlayerbotAI* botAI) : Trigger(botAI, "self snared") {}
+    bool IsActive() override;
+};
+
 class ScareBeastTrigger : public HasCcTargetTrigger
 {
 public:

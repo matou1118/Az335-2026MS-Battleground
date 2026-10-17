@@ -27,6 +27,9 @@ void GenericPriestStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         { NextAction("fear ward on main tank", ACTION_HIGH + 3) }));
     triggers.push_back(
         new TriggerNode("low health", { NextAction("power word: shield", ACTION_HIGH) }));
+    // Offensive purge vs big magic defensives (ice block / divine shield / HoP)
+    triggers.push_back(
+        new TriggerNode("offensive mass dispel", { NextAction("mass dispel", 42.0f) }));
     triggers.push_back(
         new TriggerNode("medium mana",
             {
@@ -62,14 +65,23 @@ void PriestCureStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void PriestBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(
-        new TriggerNode("power infusion", { NextAction("power infusion", 41.0f) }));
-    triggers.push_back(new TriggerNode("boost", { NextAction("shadowfiend", 20.0f) }));
+        new TriggerNode("power infusion", {
+            NextAction("power infusion", 41.0f),
+            NextAction("shadowfiend", 40.0f) }));
+    // Trigger key "boost" was never registered, so shadowfiend never fired; it now
+    // rides the power infusion trigger above.
 }
 
 void PriestCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(
         new TriggerNode("shackle undead", { NextAction("shackle undead", 31.0f) }));
+    // Hex of Weakness (debuff) and Chastise (snare) were registered triggers/actions
+    // with no TriggerNode; the triggers gate themselves, so wiring is enough.
+    triggers.push_back(
+        new TriggerNode("hex of weakness", { NextAction("hex of weakness", 32.0f) }));
+    triggers.push_back(
+        new TriggerNode("chastise", { NextAction("chastise", 31.0f) }));
 }
 
 void PriestHealerDpsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

@@ -75,7 +75,9 @@ public:
         creators["mind freeze on enemy healer"] = &DeathKnightTriggerFactoryInternal::mind_freeze_on_enemy_healer;
         creators["strangulate"] = &DeathKnightTriggerFactoryInternal::strangulate;
         creators["strangulate on enemy healer"] = &DeathKnightTriggerFactoryInternal::strangulate_on_enemy_healer;
+        creators["death grip on enemy healer"] = &DeathKnightTriggerFactoryInternal::death_grip_on_enemy_healer;
         creators["blood tap"] = &DeathKnightTriggerFactoryInternal::blood_tap;
+        creators["rune strike"] = &DeathKnightTriggerFactoryInternal::rune_strike;
         creators["raise dead"] = &DeathKnightTriggerFactoryInternal::raise_dead;
         creators["chains of ice"] = &DeathKnightTriggerFactoryInternal::chains_of_ice;
         creators["unbreakable armor"] = &DeathKnightTriggerFactoryInternal::unbreakable_armor;
@@ -120,12 +122,17 @@ private:
     {
         return new MindFreezeOnEnemyHealerTrigger(botAI);
     }
+    static Trigger* death_grip_on_enemy_healer(PlayerbotAI* botAI)
+    {
+        return new DeathGripOnEnemyHealerTrigger(botAI);
+    }
     static Trigger* strangulate(PlayerbotAI* botAI) { return new StrangulateInterruptSpellTrigger(botAI); }
     static Trigger* strangulate_on_enemy_healer(PlayerbotAI* botAI)
     {
         return new StrangulateOnEnemyHealerTrigger(botAI);
     }
     static Trigger* blood_tap(PlayerbotAI* botAI) { return new BloodTapTrigger(botAI); }
+    static Trigger* rune_strike(PlayerbotAI* botAI) { return new RuneStrikeTrigger(botAI); }
     static Trigger* raise_dead(PlayerbotAI* botAI) { return new RaiseDeadTrigger(botAI); }
     static Trigger* chains_of_ice(PlayerbotAI* botAI) { return new ChainsOfIceSnareTrigger(botAI); }
     static Trigger* unbreakable_armor(PlayerbotAI* botAI) { return new UnbreakableArmorTrigger(botAI); }
@@ -182,6 +189,10 @@ public:
         creators["deathchill"] = &DeathKnightAiObjectContextInternal::deathchill;
         creators["icebound fortitude"] = &DeathKnightAiObjectContextInternal::icebound_fortitude;
         creators["mind freeze"] = &DeathKnightAiObjectContextInternal::mind_freeze;
+        // The class CastMindFreezeOnEnemyHealerAction existed but was never registered,
+        // so GenericDKStrategy's healer-kick TriggerNode resolved to a null action.
+        creators["mind freeze on enemy healer"] = &DeathKnightAiObjectContextInternal::mind_freeze_on_enemy_healer;
+        creators["death grip on enemy healer"] = &DeathKnightAiObjectContextInternal::death_grip_on_enemy_healer;
         creators["empower rune weapon"] = &DeathKnightAiObjectContextInternal::empower_rune_weapon;
         creators["hungering cold"] = &DeathKnightAiObjectContextInternal::hungering_cold;
         creators["unbreakable armor"] = &DeathKnightAiObjectContextInternal::unbreakable_armor;
@@ -261,6 +272,10 @@ private:
     static Action* mind_freeze_on_enemy_healer(PlayerbotAI* botAI)
     {
         return new CastMindFreezeOnEnemyHealerAction(botAI);
+    }
+    static Action* death_grip_on_enemy_healer(PlayerbotAI* botAI)
+    {
+        return new CastDeathGripOnEnemyHealerAction(botAI);
     }
 };
 

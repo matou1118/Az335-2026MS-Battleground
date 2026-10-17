@@ -84,6 +84,9 @@ public:
             &RogueTriggerFactoryInternal::tricks_of_the_trade_on_main_tank;
         creators["adrenaline rush"] = &RogueTriggerFactoryInternal::adrenaline_rush;
         creators["blade flurry"] = &RogueTriggerFactoryInternal::blade_flurry;
+        creators["shadow dance"] = &RogueTriggerFactoryInternal::shadow_dance;
+        creators["blind"] = &RogueTriggerFactoryInternal::blind;
+        creators["dismantle on melee"] = &RogueTriggerFactoryInternal::dismantle_on_melee;
     }
 
 private:
@@ -117,6 +120,9 @@ private:
     }
     static Trigger* adrenaline_rush(PlayerbotAI* botAI) { return new AdrenalineRushTrigger(botAI); }
     static Trigger* blade_flurry(PlayerbotAI* botAI) { return new BladeFlurryTrigger(botAI); }
+    static Trigger* shadow_dance(PlayerbotAI* botAI) { return new ShadowDanceTrigger(botAI); }
+    static Trigger* blind(PlayerbotAI* botAI) { return new BlindInterruptSpellTrigger(botAI); }
+    static Trigger* dismantle_on_melee(PlayerbotAI* botAI) { return new DismantleOnMeleeTrigger(botAI); }
 };
 
 class RogueAiObjectContextInternal : public NamedObjectContext<Action>
@@ -164,6 +170,11 @@ public:
         creators["fan of knives"] = &RogueAiObjectContextInternal::fan_of_knives;
         creators["killing spree"] = &RogueAiObjectContextInternal::killing_spree;
         creators["cold blood"] = &RogueAiObjectContextInternal::cold_blood;
+        creators["hemorrhage"] = &RogueAiObjectContextInternal::hemorrhage;
+        creators["shadowstep"] = &RogueAiObjectContextInternal::shadowstep;
+        creators["shadow dance"] = &RogueAiObjectContextInternal::shadow_dance;
+        creators["premeditation"] = &RogueAiObjectContextInternal::premeditation;
+        creators["dismantle"] = &RogueAiObjectContextInternal::dismantle;
     }
 
 private:
@@ -230,6 +241,11 @@ private:
     static Action* fan_of_knives(PlayerbotAI* botAI) { return new FanOfKnivesAction(botAI); }
     static Action* killing_spree(PlayerbotAI* botAI) { return new CastKillingSpreeAction(botAI); }
     static Action* cold_blood(PlayerbotAI* botAI) { return new CastColdBloodAction(botAI); }
+    static Action* hemorrhage(PlayerbotAI* botAI) { return new CastSpellAction(botAI, "hemorrhage"); }
+    static Action* shadowstep(PlayerbotAI* botAI) { return new CastSpellAction(botAI, "shadowstep"); }
+    static Action* shadow_dance(PlayerbotAI* botAI) { return new CastSpellAction(botAI, "shadow dance"); }
+    static Action* premeditation(PlayerbotAI* botAI) { return new CastSpellAction(botAI, "premeditation"); }
+    static Action* dismantle(PlayerbotAI* botAI) { return new CastDismantleAction(botAI); }
 };
 
 SharedNamedObjectContextList<Strategy> RogueAiObjectContext::sharedStrategyContexts;

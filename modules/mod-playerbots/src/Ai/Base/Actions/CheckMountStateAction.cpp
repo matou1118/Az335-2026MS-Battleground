@@ -14,6 +14,7 @@
 #include "Event.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotSpellRepository.h"
 #include "Playerbots.h"
 #include "ServerFacade.h"
 #include "SpellAuraEffects.h"
@@ -27,6 +28,7 @@ std::unordered_map<uint32, PreferredMountCache> CheckMountStateAction::mountCach
 MountData CollectMountData(Player const* bot)
 {
     MountData data;
+    uint32 const ridingSkill = bot->GetPureSkillValue(SKILL_RIDING);
     for (auto& entry : bot->GetSpellMap())
     {
         uint32 spellId = entry.first;
@@ -35,6 +37,10 @@ MountData CollectMountData(Player const* bot)
             continue;
 
         if (entry.second->State == PLAYERSPELL_REMOVED || !entry.second->Active || spellInfo->IsPassive())
+            continue;
+
+        // The core casts a known mount without checking Riding.
+        if (PlayerbotSpellRepository::Instance().GetRequiredRidingSkill(spellInfo) > ridingSkill)
             continue;
 
         int32 effect1 = spellInfo->Effects[1].BasePoints;
@@ -78,6 +84,19 @@ bool CheckMountStateAction::Execute(Event /*event*/)
     }
     ClearStaleFlightFlags();
 
+    // BGs are ground-mount only (GetMountType forces 0 in BG), but a flyer aura or
+    // flight movement flags can ride in through the BG teleport: ClearStaleFlightFlags
+    // early-returns while a fly aura lives, so nothing cleans it and the bot glides
+    // over the ridge straight into the enemy base. Strip on entry; re-mount picks a
+    // ground mount next tick.
+    if (bot->InBattleground() &&
+        (bot->HasIncreaseMountedFlightSpeedAura() ||
+         bot->HasUnitMovementFlag(MOVEMENTFLAG_FLYING | MOVEMENTFLAG_DISABLE_GRAVITY)))
+    {
+        Dismount();
+        return true;
+    }
+
     // Determine if there are no attackers
     bool noAttackers = !AI_VALUE2(bool, "combat", "self target") || !AI_VALUE(uint8, "attacker count");
     bool enemy = AI_VALUE(Unit*, "enemy player target");
@@ -99,6 +118,18 @@ bool CheckMountStateAction::Execute(Event /*event*/)
     else
     {
         shouldMount = true;
+    }
+
+    // Being attacked forces a dismount even without a locked target. Otherwise the
+    // bot deadlocks: no current target -> stays mounted -> cannot cast or auto-attack
+    // -> never acquires a target -> stands mounted taking damage until it dies.
+    // Cannot gate on !noAttackers here: "attacker count" reads the threat table and
+    // AC keeps no threat between players, so a PvP attacker never registers - use
+    // raw IsInCombat (covers PvE threat too). Flying excluded: midair dismount = fall.
+    if (bot->IsInCombat() && !bot->IsFlying())
+    {
+        shouldDismount = true;
+        shouldMount = false;
     }
 
     // If should dismount, or master (if any) is no longer in travel form, yet bot still is, remove the shapeshifts
@@ -545,6 +576,12 @@ int32 CheckMountStateAction::CalculateMasterMountSpeed(Player* master) const
 uint32 CheckMountStateAction::GetMountType(Player* master) const
 {
     bool const noRealMaster = (!master || master == bot);
+
+    // BGs are ground-mount only: without this the master branch below copies the
+    // master's flyer (or flight form) straight into the BG and the bot glides over
+    // the ridges into the enemy base.
+    if (bot->InBattleground())
+        return 0;
 
     if (noRealMaster)
         return (!bot->InBattleground() && BotCanUseFlyingMount(bot)) ? 1 : 0;

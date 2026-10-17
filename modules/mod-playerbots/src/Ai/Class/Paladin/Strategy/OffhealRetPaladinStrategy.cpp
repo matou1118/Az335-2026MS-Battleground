@@ -153,9 +153,9 @@ void OffhealRetPaladinStrategy::InitTriggers(std::vector<TriggerNode*>& triggers
     );
     triggers.push_back(
         new TriggerNode(
-            "blessing of might",
+            "blessing of might on party",
             {
-                NextAction("blessing of might", ACTION_NORMAL + 1)
+                NextAction("blessing of might on party", ACTION_NORMAL + 1)
             }
         )
     );

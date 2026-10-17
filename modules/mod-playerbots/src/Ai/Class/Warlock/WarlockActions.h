@@ -541,4 +541,10 @@ class ShadowCleaveAction : public CastMeleeSpellAction
 public:
     ShadowCleaveAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "shadow cleave") {}
 };
+
+class CastWarlockDeathCoilAction : public CastSpellAction
+{
+public:
+    CastWarlockDeathCoilAction(PlayerbotAI* ai) : CastSpellAction(ai, "death coil") {}
+};
 #endif

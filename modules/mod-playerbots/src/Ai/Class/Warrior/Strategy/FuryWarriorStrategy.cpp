@@ -102,11 +102,31 @@ void FuryWarriorStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // Rampage had BUFF_TRIGGER/BUFF_ACTION registered but was never added to a strategy,
+    // so fury warriors never used it. One step below Battle Shout, same band as a buff.
+    triggers.push_back(
+        new TriggerNode(
+            "rampage",
+            {
+                NextAction("rampage", ACTION_HIGH + 7)
+            }
+        )
+    );
     triggers.push_back(
         new TriggerNode(
             "pummel on enemy healer",
             {
                 NextAction("pummel on enemy healer", ACTION_INTERRUPT)
+            }
+        )
+    );
+    // Intercept to an enemy healer: action registered, node never created. Same
+    // "on enemy healer" family as the pummel above; a gap closer, so the mobility band.
+    triggers.push_back(
+        new TriggerNode(
+            "intercept on enemy healer",
+            {
+                NextAction("intercept on enemy healer", ACTION_HIGH + 3)
             }
         )
     );

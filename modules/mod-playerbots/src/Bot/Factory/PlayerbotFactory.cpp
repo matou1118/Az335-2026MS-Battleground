@@ -11,6 +11,7 @@
 #include "AiObjectContext.h"
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
+#include "BisListMgr.h"
 #include "DBCStores.h"
 #include "DBCStructure.h"
 #include "GuildMgr.h"
@@ -29,6 +30,7 @@
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotGuildMgr.h"
 #include "PlayerbotRepository.h"
+#include "PlayerbotSpellRepository.h"
 #include "Playerbots.h"
 #include "QuestDef.h"
 #include "RandomItemMgr.h"
@@ -2382,6 +2384,28 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
 
     bool isPvp = sRandomPlayerbotMgr.IsSpecPvp(bot->GetGUID().GetCounter(), bot->getClass());
 
+    // BiS gear: when the bot's class/spec has a Best-in-Slot set for the configured
+    // tier, those items are used directly instead of picking by stat weight. The tier
+    // comes from AutoGearScoreLimit, whose value is the item-level key in
+    // playerbots_bis_gear (290 there is the ilvl 277/284 end-game set).
+    std::map<uint8, uint32> bisMap;
+    if (blevel >= 80 && sPlayerbotAIConfig.autoGearScoreLimit > 0)
+    {
+        constexpr uint8 BIS_TAB_DRUID_BEAR = 10;
+        constexpr uint16 BIS_ILVL_FALLBACK_WINDOW = 20;
+        const uint16 bisIlvl = uint16(sPlayerbotAIConfig.autoGearScoreLimit);
+        const uint8 bisCls = bot->getClass();
+        const uint8 bisTab = AiFactory::GetPlayerSpecTab(bot);
+        const uint8 bisFaction = bot->GetTeamId() == TEAM_ALLIANCE ? 1 : 2;
+        uint16 resolvedIlvl = 0;
+        if (bisCls == CLASS_DRUID && bisTab == DRUID_TAB_FERAL && PlayerbotAI::IsTank(bot))
+            bisMap = sBisListMgr->GetBisForNearest(bisIlvl, BIS_ILVL_FALLBACK_WINDOW, bisCls, BIS_TAB_DRUID_BEAR,
+                                                    bisFaction, &resolvedIlvl);
+        if (bisMap.empty())
+            bisMap = sBisListMgr->GetBisForNearest(bisIlvl, BIS_ILVL_FALLBACK_WINDOW, bisCls, bisTab, bisFaction,
+                                                    &resolvedIlvl);
+    }
+
     StatsWeightCalculator calculator(bot);
     if (isPvp)
         calculator.SetPvpSpec(true);
@@ -2535,6 +2559,23 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
         if (ids.empty())
         {
             continue;
+        }
+
+        // BiS override: if this class/spec has a Best-in-Slot item for this slot, use it
+        // instead of the stat-weight pick.
+        auto bisIt = bisMap.find(uint8(slot));
+        if (bisIt != bisMap.end() && bisIt->second != 0)
+        {
+            ItemTemplate const* bisProto = sObjectMgr->GetItemTemplate(bisIt->second);
+            uint16 bisDest;
+            if (bisProto && CanEquipItem(bisProto) && CanEquipUnseenItem(slot, bisDest, bisIt->second))
+            {
+                int32 bisProp = 0;
+                if (bisProto->RandomProperty || bisProto->RandomSuffix)
+                    bisProp = calculator.PickBestRandomPropertyId(bisIt->second);
+                ids.clear();
+                ids.push_back({bisIt->second, bisProp});
+            }
         }
 
         float bestScoreForSlot = -1;
@@ -4004,6 +4045,7 @@ void PlayerbotFactory::InitMounts()
     if (bot->GetLevel() < firstmount)
         return;
 
+    uint32 const ridingSkill = bot->GetPureSkillValue(SKILL_RIDING);
     std::map<uint8, std::map<uint32, std::vector<uint32>>> mounts;
     std::vector<uint32> slow, fast, fslow, ffast;
 
@@ -4106,6 +4148,10 @@ void PlayerbotFactory::InitMounts()
 
         uint32 index = urand(0, mounts[bot->getRace()][type].size() - 1);
         uint32 spell = mounts[bot->getRace()][type][index];
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spell);
+        if (spellInfo && PlayerbotSpellRepository::Instance().GetRequiredRidingSkill(spellInfo) > ridingSkill)
+            continue;
+
         if (spell)
         {
             bot->learnSpell(spell);

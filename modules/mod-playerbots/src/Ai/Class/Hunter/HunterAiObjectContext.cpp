@@ -80,6 +80,9 @@ public:
         creators["serpent sting on attacker"] = &HunterTriggerFactoryInternal::serpent_sting_on_attacker;
         creators["pet not happy"] = &HunterTriggerFactoryInternal::pet_not_happy;
         creators["concussive shot on snare target"] = &HunterTriggerFactoryInternal::concussive_shot_on_snare_target;
+        creators["scatter shot"] = &HunterTriggerFactoryInternal::scatter_shot;
+        creators["scatter shot on enemy healer"] = &HunterTriggerFactoryInternal::scatter_shot_on_enemy_healer;
+        creators["self snared"] = &HunterTriggerFactoryInternal::self_snared;
         creators["scare beast"] = &HunterTriggerFactoryInternal::scare_beast;
         creators["low ammo"] = &HunterTriggerFactoryInternal::low_ammo;
         creators["no ammo"] = &HunterTriggerFactoryInternal::no_ammo;
@@ -115,6 +118,9 @@ private:
     static Trigger* hunters_pet_medium_health(PlayerbotAI* botAI) { return new HuntersPetMediumHealthTrigger(botAI); }
     static Trigger* hunters_mark(PlayerbotAI* botAI) { return new HuntersMarkTrigger(botAI); }
     static Trigger* freezing_trap(PlayerbotAI* botAI) { return new FreezingTrapTrigger(botAI); }
+    static Trigger* scatter_shot(PlayerbotAI* botAI) { return new ScatterShotInterruptSpellTrigger(botAI); }
+    static Trigger* scatter_shot_on_enemy_healer(PlayerbotAI* botAI) { return new ScatterShotOnEnemyHealerTrigger(botAI); }
+    static Trigger* self_snared(PlayerbotAI* botAI) { return new SelfSnaredTrigger(botAI); }
     static Trigger* aspect_of_the_pack(PlayerbotAI* botAI) { return new HunterAspectOfThePackTrigger(botAI); }
     static Trigger* rapid_fire(PlayerbotAI* botAI) { return new RapidFireTrigger(botAI); }
     static Trigger* aspect_of_the_dragonhawk(PlayerbotAI* botAI) { return new HunterAspectOfTheDragonhawkTrigger(botAI); }
@@ -190,7 +196,13 @@ public:
         creators["disengage"] = &HunterAiObjectContextInternal::disengage;
         creators["immolation trap"] = &HunterAiObjectContextInternal::immolation_trap;
         creators["explosive trap"] = &HunterAiObjectContextInternal::explosive_trap;
+        creators["frost trap"] = &HunterAiObjectContextInternal::frost_trap;
+        creators["scatter shot"] = &HunterAiObjectContextInternal::scatter_shot;
+        creators["master's call"] = &HunterAiObjectContextInternal::masters_call;
         creators["explosive shot base"] = &HunterAiObjectContextInternal::explosive_shot_base;
+        // Survival's rotation and default actions call the plain "explosive shot" key,
+        // which was never registered - the whole spec's filler was a silent no-op.
+        creators["explosive shot"] = &HunterAiObjectContextInternal::explosive_shot_base;
         creators["explosive shot rank 4"] = &HunterAiObjectContextInternal::explosive_shot_rank_4;
         creators["explosive shot rank 3"] = &HunterAiObjectContextInternal::explosive_shot_rank_3;
         creators["explosive shot rank 2"] = &HunterAiObjectContextInternal::explosive_shot_rank_2;
@@ -247,6 +259,9 @@ private:
     static Action* disengage(PlayerbotAI* botAI) { return new CastDisengageAction(botAI); }
     static Action* immolation_trap(PlayerbotAI* botAI) { return new CastImmolationTrapAction(botAI); }
     static Action* explosive_trap(PlayerbotAI* botAI) { return new CastExplosiveTrapAction(botAI); }
+    static Action* frost_trap(PlayerbotAI* botAI) { return new CastFrostTrapAction(botAI); }
+    static Action* scatter_shot(PlayerbotAI* botAI) { return new CastScatterShotAction(botAI); }
+    static Action* masters_call(PlayerbotAI* botAI) { return new CastMastersCallAction(botAI); }
     static Action* explosive_shot_base(PlayerbotAI* botAI) { return new CastExplosiveShotBaseAction(botAI); }
     static Action* explosive_shot_rank_4(PlayerbotAI* botAI) { return new CastExplosiveShotRank4Action(botAI); }
     static Action* explosive_shot_rank_3(PlayerbotAI* botAI) { return new CastExplosiveShotRank3Action(botAI); }

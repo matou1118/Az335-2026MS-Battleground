@@ -294,6 +294,7 @@ public:
         creators["incinerate"] = &WarlockAiObjectContextInternal::incinerate;
         creators["demon charge"] = &WarlockAiObjectContextInternal::demon_charge;
         creators["shadow cleave"] = &WarlockAiObjectContextInternal::shadow_cleave;
+        creators["death coil"] = &WarlockAiObjectContextInternal::death_coil;
         creators["shadowburn"] = &WarlockAiObjectContextInternal::shadowburn;
         creators["shadowflame"] = &WarlockAiObjectContextInternal::shadowflame;
         creators["immolation aura"] = &WarlockAiObjectContextInternal::immolation_aura;
@@ -364,6 +365,7 @@ private:
     static Action* soul_fire(PlayerbotAI* ai) { return new CastSoulFireAction(ai); }
     static Action* demon_charge(PlayerbotAI* ai) { return new DemonChargeAction(ai); }
     static Action* shadow_cleave(PlayerbotAI* ai) { return new ShadowCleaveAction(ai); }
+    static Action* death_coil(PlayerbotAI* ai) { return new CastWarlockDeathCoilAction(ai); }
     static Action* shadowburn(PlayerbotAI* ai) { return new CastShadowburnAction(ai); }
     static Action* shadowflame(PlayerbotAI* botAI) { return new CastShadowflameAction(botAI); }
     static Action* immolation_aura(PlayerbotAI* botAI) { return new CastImmolationAuraAction(botAI); }

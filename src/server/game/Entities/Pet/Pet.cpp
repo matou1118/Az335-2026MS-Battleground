@@ -2222,11 +2222,13 @@ void Pet::InitTalentForLevel()
     if (!owner || !owner->IsPlayer())
         return;
 
-    // Reset talents in case low level (on level down) or wrong points for level (hunter can unlearn TP increase talent)
-    if (talentPointsForLevel == 0 || m_usedTalentCount > talentPointsForLevel)
-        resetTalents(); // Remove all talent points
-
-    SetFreeTalentPoints(talentPointsForLevel - m_usedTalentCount);
+    // Never auto-wipe learned pet talents. This runs on every load and on every pet level
+    // sync, and any wipe here is written back to the DB by the next save - on this server
+    // that silently destroyed players' pet talent setups (talents "would not stick").
+    // A temporary budget dip (level sync / spec change) simply clamps the free points.
+    // Manual refunds still work through Player::ResetPetTalents() and the pet trainer gossip.
+    int32 freePoints = int32(talentPointsForLevel) - int32(m_usedTalentCount);
+    SetFreeTalentPoints(freePoints > 0 ? uint32(freePoints) : 0);
 
     if (!m_loading)
         owner->ToPlayer()->SendTalentsInfoData(true);

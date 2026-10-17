@@ -366,6 +366,27 @@ public:
         CastSpellAction(botAI, "explosive trap") {}
 };
 
+class CastFrostTrapAction : public CastSpellAction
+{
+public:
+    CastFrostTrapAction(PlayerbotAI* botAI) :
+        CastSpellAction(botAI, "frost trap") {}
+};
+
+class CastScatterShotAction : public CastSpellAction
+{
+public:
+    CastScatterShotAction(PlayerbotAI* botAI) :
+        CastSpellAction(botAI, "scatter shot") {}
+};
+
+class CastMastersCallAction : public CastBuffSpellAction
+{
+public:
+    CastMastersCallAction(PlayerbotAI* botAI) :
+        CastBuffSpellAction(botAI, "master's call") {}
+};
+
 class CastBlackArrowAction : public CastDebuffSpellAction
 {
 public:

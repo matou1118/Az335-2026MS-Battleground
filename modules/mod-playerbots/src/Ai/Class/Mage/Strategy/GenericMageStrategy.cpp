@@ -93,7 +93,9 @@ void GenericMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     RangedCombatStrategy::InitTriggers(triggers);
 
     // Threat Triggers
-    triggers.push_back(new TriggerNode("high threat", { NextAction("mirror image", 60.0f) }));
+    // TriggerContext only registers "medium threat"; "high threat" never resolved,
+    // so mirror image was never used as a threat drop.
+    triggers.push_back(new TriggerNode("medium threat", { NextAction("mirror image", 60.0f) }));
     triggers.push_back(new TriggerNode("medium threat", { NextAction("invisibility", 30.0f) }));
 
     // Defensive Triggers
@@ -123,6 +125,9 @@ void GenericMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     // Counterspell / Spellsteal Triggers
     triggers.push_back(new TriggerNode("spellsteal", { NextAction("spellsteal", 40.0f) }));
+    // InterruptSpellTrigger("counterspell") was registered but never referenced, so a
+    // mage only ever kicked enemy healers - every other caster finished its spell.
+    triggers.push_back(new TriggerNode("counterspell", { NextAction("counterspell", 39.0f) }));
     triggers.push_back(new TriggerNode("counterspell on enemy healer", { NextAction("counterspell on enemy healer", 40.0f) }));
 }
 
@@ -140,6 +145,8 @@ void MageBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     if (tab == MAGE_TAB_ARCANE)
     {
         triggers.push_back(new TriggerNode("arcane power", { NextAction("arcane power", 29.0f) }));
+    // Presence of Mind is a BoostTrigger like Arcane Power; registered but never wired.
+    triggers.push_back(new TriggerNode("presence of mind", { NextAction("presence of mind", 28.8f) }));
         triggers.push_back(new TriggerNode("icy veins", { NextAction("icy veins", 28.5f) }));
         triggers.push_back(new TriggerNode("mirror image", { NextAction("mirror image", 28.0f) }));
     }
@@ -154,6 +161,10 @@ void MageBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         else
         { // Fire
             triggers.push_back(new TriggerNode("combustion", { NextAction("combustion", 18.0f) }));
+            // NFU fire-PvP burst macros include Icy Veins (trainable by any spec);
+            // frostfire branch below already wires it this way. CastSpellAction's
+            // CanCastSpell gate silently skips bots that never learned it.
+            triggers.push_back(new TriggerNode("icy veins", { NextAction("icy veins", 17.6f) }));
             triggers.push_back(new TriggerNode("mirror image", { NextAction("mirror image", 17.5f) }));
         }
     }

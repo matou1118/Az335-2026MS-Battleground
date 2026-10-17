@@ -117,4 +117,12 @@ protected:
     static const std::set<uint32> MIND_SEAR_SPELL_IDS;
 };
 
+class OffensiveMassDispelTrigger : public Trigger
+{
+public:
+    OffensiveMassDispelTrigger(PlayerbotAI* botAI) : Trigger(botAI, "offensive mass dispel") {}
+
+    bool IsActive() override;
+};
+
 #endif

@@ -145,6 +145,12 @@ public:
     StrangulateOnEnemyHealerTrigger(PlayerbotAI* botAI) : InterruptEnemyHealerTrigger(botAI, "strangulate") {}
 };
 
+class DeathGripOnEnemyHealerTrigger : public InterruptEnemyHealerTrigger
+{
+public:
+    DeathGripOnEnemyHealerTrigger(PlayerbotAI* botAI) : InterruptEnemyHealerTrigger(botAI, "death grip") {}
+};
+
 class HighBloodRuneTrigger : public Trigger
 {
 public:

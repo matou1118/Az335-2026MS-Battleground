@@ -13,9 +13,17 @@
 
 bool EnemyTooCloseForSpellTrigger::IsActive()
 {
+    // Only casters/ranged care that an enemy is in their face; a melee bot standing
+    // at MIN_MELEE_REACH is exactly where it wants to be.
+    if (!PlayerbotAI::IsRanged(bot, true))
+        return false;
+
     Unit* target = AI_VALUE(Unit*, "current target");
-    return target && (target->GetVictim() != bot || target->isFrozen() || target->HasRootAura()) &&
-           target->GetObjectSize() <= 10.0f && target->IsWithinCombatRange(bot, MIN_MELEE_REACH);
+    // Dropped the "target->GetVictim() != bot" requirement: it made the trigger go
+    // false the moment an enemy focused the bot, so a mage just stood there and
+    // died instead of blinking/fleeing. Being focused is precisely when to kite.
+    return target && target->GetObjectSize() <= 10.0f &&
+           target->IsWithinCombatRange(bot, MIN_MELEE_REACH);
     //     Unit* target = AI_VALUE(Unit*, "current target");
     //     if (!target)
     //     {

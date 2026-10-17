@@ -58,6 +58,18 @@ void HealPriestStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         )
     );
 
+    // Binding Heal: heals a low party member and the priest at once, but the trigger
+    // only fires when the priest itself is also below medium health. The trigger and
+    // action were registered but never wired.
+    triggers.push_back(
+        new TriggerNode(
+            "binding heal",
+            {
+                NextAction("binding heal", ACTION_CRITICAL_HEAL + 1)
+            }
+        )
+    );
+
     triggers.push_back(
         new TriggerNode(
             "party member low health",

@@ -50,6 +50,9 @@ GuidVector AttackersValue::Calculate()
         result.push_back(bot->duel->Opponent->GetGUID());
 
     // workaround for bots of same faction not fighting in arena
+    // Arena only, on purpose: also doing this in battlegrounds makes every bot believe it is
+    // under attack all game, so they stop running their BG tactic (graveyard, towers, commander)
+    // and just brawl with whoever is nearest.
     if (bot->InArena())
     {
         GuidVector possibleTargets = AI_VALUE(GuidVector, "possible targets");

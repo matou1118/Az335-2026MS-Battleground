@@ -81,6 +81,7 @@ bool PlayerbotAIConfig::Initialize()
     LOG_INFO("server.loading", "Initializing mod-playerbots, based on AI Playerbots by ike3 and the original Playerbots by blueboy");
 
     enabled = sConfigMgr->GetOption<bool>("AiPlayerbot.Enabled", true);
+    enableDestinationCache = sConfigMgr->GetOption<bool>("AiPlayerbot.EnableDestinationCache", true);
     if (!enabled)
     {
         LOG_INFO("server.loading", "Playerbots Module is disabled in playerbots.conf");

@@ -5,6 +5,7 @@
  */
 
 #include "Playerbots.h"
+#include "Random.h"
 #include "BattleGroundTactics.h"
 #include "BattlefieldScript.h"
 #include "Channel.h"
@@ -551,6 +552,24 @@ public:
     }
 };
 
+// AV used to be hard-coded to a single strategy, so every match played out the same way.
+// Roll a fresh one per team and per match instead (still mostly the traditional push).
+static uint8 RollAVStrategy()
+{
+    // Five playbooks, rolled per team and per match, so AV is not the same battle every time.
+    // Weights live on these five lines - 40/25/15/12/8 to start with.
+    uint32 roll = urand(0, 99);
+    if (roll < 40)
+        return AV_STRATEGY_BALANCED;   // split the line, sneak the undefended tower, general last
+    if (roll < 65)
+        return AV_STRATEGY_SIEGE;      // classic: graveyard + gate tower, kill the captain, then base
+    if (roll < 80)
+        return AV_STRATEGY_TOWERS;     // seven towers first, one bot on graveyards
+    if (roll < 92)
+        return AV_STRATEGY_OFFENSIVE;  // rush the general
+    return AV_STRATEGY_DEFENSIVE;      // hold the line
+}
+
 class PlayerBotsBGScript : public BGScript
 {
 public:
@@ -560,7 +579,11 @@ public:
     {
         BGStrategyData data;
 
-        switch (bg->GetBgTypeID())
+        BattlegroundTypeId bgType = bg->GetBgTypeID();
+        if (bgType == BATTLEGROUND_RB)  // a random-queue game: the rolled map
+            bgType = bg->GetBgTypeID(true);
+
+        switch (bgType)
         {
             case BATTLEGROUND_WS:
                 data.allianceStrategy = WS_STRATEGY_OFFENSIVE;
@@ -571,8 +594,9 @@ public:
                 data.hordeStrategy = AB_STRATEGY_BALANCED;
                 break;
             case BATTLEGROUND_AV:
-                data.allianceStrategy = AV_STRATEGY_BALANCED;
-                data.hordeStrategy = AV_STRATEGY_BALANCED;
+                // Fresh roll per team and per match so AV is not the same battle every time.
+                data.allianceStrategy = RollAVStrategy();
+                data.hordeStrategy = RollAVStrategy();
                 break;
             case BATTLEGROUND_EY:
                 data.allianceStrategy = EY_STRATEGY_FLAG_FOCUS;

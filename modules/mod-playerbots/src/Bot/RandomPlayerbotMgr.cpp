@@ -289,6 +289,14 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     if (!sPlayerbotAIConfig.randomBotAutologin || !sPlayerbotAIConfig.enabled)
         return;
 
+    // NOTE: a "pull bots towards the real player" block used to live here. It called
+    // RandomTeleport(bot) on up to three bots per tick and crashed worldserver twice
+    // (2026-10-17 01:21 / 01:23) with nothing but bots logging in around the player.
+    // RandomTeleport(bot) ignores RandomBotConcentrateInPlayerZone (only the overload that
+    // runs GetPlayerZoneTeleportLocations honours it) and teleporting bots from inside the
+    // manager tick pulls the rug from under whatever their AI was executing.
+    // Left out on purpose - fix it properly before putting it back.
+
     /*if (sPlayerbotAIConfig.enablePrototypePerformanceDiff)
     {
         LOG_INFO("playerbots", "---------------------------------------");
@@ -336,7 +344,32 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     bool realPlayerIsLogged = false;
     if (sPlayerbotAIConfig.disabledWithoutRealPlayer)
     {
-        if (sWorldSessionMgr->GetActiveAndQueuedSessionCount() > 0)
+        // Bots exist only while a real player actually needs them: queued for a battleground,
+        // inside one, or inside a dungeon/raid instance. Just being logged in and standing in a
+        // city no longer wakes the fleet - requested explicitly ("bots come online when I open a
+        // battleground or dungeon, and log off again afterwards"). Bots keep no state of their
+        // own here, the queue/instance membership is the whole signal.
+        bool realPlayerNeedsBots = false;
+        for (Player* player : players)
+        {
+            if (!player || !player->IsInWorld() || player->IsGameMaster() || GET_PLAYERBOT_AI(player))
+                continue;
+
+            if (player->InBattlegroundQueue() || player->InBattleground())
+            {
+                realPlayerNeedsBots = true;
+                break;
+            }
+
+            Map* map = player->GetMap();
+            if (map && map->IsDungeon())
+            {
+                realPlayerNeedsBots = true;
+                break;
+            }
+        }
+
+        if (realPlayerNeedsBots)
         {
             RealPlayerLastTimeSeen = time(nullptr);
             realPlayerIsLogged = true;
@@ -842,26 +875,39 @@ uint32 RandomPlayerbotMgr::AddRandomBots()
 void RandomPlayerbotMgr::LoadBattleMastersCache()
 {
     BattleMastersCache.clear();
+    BattleMasterSpawnIds.clear();
 
     LOG_INFO("playerbots", "Loading Battlemasters Cache...");
 
     QueryResult result = WorldDatabase.Query("SELECT `entry`,`bg_template` FROM `battlemaster_entry`");
-
-    uint32 count = 0;
 
     if (!result)
     {
         return;
     }
 
+    std::vector<std::pair<uint32, uint32>> battleMasterEntries;
     do
     {
-        ++count;
-
         Field* fields = result->Fetch();
-
         uint32 entry = fields[0].Get<uint32>();
-        uint32 bgTypeId = fields[1].Get<uint32>();
+        battleMasterEntries.emplace_back(entry, fields[1].Get<uint32>());
+        BattleMasterSpawnIds.emplace(entry, 0);
+    } while (result->NextRow());
+
+    // Resolve every entry to its first spawn once; 0 marks entries with no static spawn.
+    for (auto const& [spawnId, creatureData] : sObjectMgr->GetAllCreatureData())
+    {
+        auto spawnIt = BattleMasterSpawnIds.find(creatureData.id);
+        if (spawnIt != BattleMasterSpawnIds.end() && !spawnIt->second)
+            spawnIt->second = spawnId;
+    }
+
+    uint32 count = 0;
+
+    for (auto const& [entry, bgTypeId] : battleMasterEntries)
+    {
+        ++count;
 
         CreatureTemplate const* bmaster = sObjectMgr->GetCreatureTemplate(entry);
         if (!bmaster)
@@ -890,8 +936,7 @@ void RandomPlayerbotMgr::LoadBattleMastersCache()
                   bmTeam == TEAM_ALLIANCE ? "Alliance"
                   : bmTeam == TEAM_HORDE  ? "Horde"
                                           : "Neutral");
-
-    } while (result->NextRow());
+    }
 
     LOG_INFO("playerbots", ">> Loaded {} battlemaster entries", count);
 }
@@ -938,6 +983,21 @@ void RandomPlayerbotMgr::CheckBgQueue()
         }
     }
 
+    // A participant may level past the queue's bracket while waiting or inside the match.
+    // Use the bracket assigned by the queue or the instance, never their current level.
+    auto getQueueBracket = [&](Player* participant, Battleground* bg, uint8 slot,
+                               BattlegroundQueueTypeId queueTypeId, uint32 mapId) -> PvPDifficultyEntry const*
+    {
+        if (participant->InBattleground() && participant->GetCurrentBattlegroundQueueSlot() == slot)
+            return bg ? GetBattlegroundBracketById(mapId, bg->GetBracketId()) : nullptr;
+
+        GroupQueueInfo groupInfo;
+        BattlegroundQueue& queue = sBattlegroundMgr->GetBattlegroundQueue(queueTypeId);
+        if (!queue.GetPlayerGroupInfoData(participant->GetGUID(), &groupInfo))
+            return nullptr;
+        return GetBattlegroundBracketById(mapId, BattlegroundBracketId(groupInfo.BracketId));
+    };
+
     // Process real players and populate Battleground Data with player/queue count
     // Opens a queue for bots to join
     for (Player* player : players)
@@ -946,7 +1006,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
         if (!player->InBattlegroundQueue())
             continue;
 
-        Battleground* bg = player->GetBattleground();
+        Battleground* bg = player->GetBattleground(true);
         if (bg && bg->GetStatus() == STATUS_WAIT_LEAVE)
             continue;
 
@@ -961,7 +1021,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
             // Check if real player is able to create/join this queue
             BattlegroundTypeId bgTypeId = sBattlegroundMgr->BGTemplateId(queueTypeId);
             uint32 mapId = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId)->GetMapId();
-            PvPDifficultyEntry const* pvpDiff = GetBattlegroundBracketByLevel(mapId, player->GetLevel());
+            PvPDifficultyEntry const* pvpDiff = getQueueBracket(player, bg, queueType, queueTypeId, mapId);
             if (!pvpDiff)
                 continue;
 
@@ -983,7 +1043,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
                 }
 
                 if (bgQueue.IsPlayerInvitedToRatedArena(player->GetGUID()) ||
-                    (player->InArena() && player->GetBattleground()->isRated()))
+                    (player->InArena() && bg->isRated()))
                     isRated = true;
 
                 if (isRated)
@@ -1000,10 +1060,10 @@ void RandomPlayerbotMgr::CheckBgQueue()
                     BattlegroundData[queueTypeId][bracketId].bgHordePlayerCount++;
 
                 // If a player has joined the BG, update the instance count in BattlegroundData (for consistency)
-                if (player->InBattleground())
+                if (player->InBattleground() && player->GetCurrentBattlegroundQueueSlot() == queueType)
                 {
                     std::vector<uint32>* instanceIds = nullptr;
-                    uint32 instanceId = player->GetBattleground()->GetInstanceID();
+                    uint32 instanceId = bg->GetInstanceID();
 
                     instanceIds = &BattlegroundData[queueTypeId][bracketId].bgInstances;
                     if (instanceIds &&
@@ -1037,7 +1097,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
         if (!bot || !bot->InBattlegroundQueue() || !bot->IsInWorld() || !IsRandomBot(bot))
             continue;
 
-        Battleground* bg = bot->GetBattleground();
+        Battleground* bg = bot->GetBattleground(true);
         if (bg && bg->GetStatus() == STATUS_WAIT_LEAVE)
             continue;
 
@@ -1051,7 +1111,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
 
             BattlegroundTypeId bgTypeId = sBattlegroundMgr->BGTemplateId(queueTypeId);
             uint32 mapId = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId)->GetMapId();
-            PvPDifficultyEntry const* pvpDiff = GetBattlegroundBracketByLevel(mapId, bot->GetLevel());
+            PvPDifficultyEntry const* pvpDiff = getQueueBracket(bot, bg, queueType, queueTypeId, mapId);
             if (!pvpDiff)
                 continue;
 
@@ -1070,7 +1130,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
                     isRated = ginfo.IsRated;
                 }
 
-                if (bgQueue.IsPlayerInvitedToRatedArena(guid) || (bot->InArena() && bot->GetBattleground()->isRated()))
+                if (bgQueue.IsPlayerInvitedToRatedArena(guid) || (bot->InArena() && bg->isRated()))
                     isRated = true;
 
                 if (isRated)
@@ -1086,10 +1146,10 @@ void RandomPlayerbotMgr::CheckBgQueue()
                     BattlegroundData[queueTypeId][bracketId].bgHordeBotCount++;
             }
 
-            if (bot->InBattleground())
+            if (bot->InBattleground() && bot->GetCurrentBattlegroundQueueSlot() == queueType)
             {
                 std::vector<uint32>* instanceIds = nullptr;
-                uint32 instanceId = bot->GetBattleground()->GetInstanceID();
+                uint32 instanceId = bg->GetInstanceID();
                 bool isArena = false;
                 bool isRated = false;
 
@@ -1097,7 +1157,7 @@ void RandomPlayerbotMgr::CheckBgQueue()
                 if (bot->InArena())
                 {
                     isArena = true;
-                    if (bot->GetBattleground()->isRated())
+                    if (bg->isRated())
                     {
                         isRated = true;
                         instanceIds = &BattlegroundData[queueTypeId][bracketId].ratedArenaInstances;
@@ -3227,7 +3287,13 @@ ObjectGuid RandomPlayerbotMgr::GetBattleMasterGUID(Player* bot, BattlegroundType
 
     for (auto i = begin(Bms); i != end(Bms); ++i)
     {
-        CreatureData const* data = sRandomPlayerbotMgr.GetCreatureDataByEntry(*i);
+        CreatureData const* data = nullptr;
+        auto spawnIt = BattleMasterSpawnIds.find(*i);
+        if (spawnIt == BattleMasterSpawnIds.end())
+            data = sRandomPlayerbotMgr.GetCreatureDataByEntry(*i);
+        else if (spawnIt->second)
+            data = sObjectMgr->GetCreatureData(spawnIt->second);
+
         if (!data)
             continue;
 

@@ -179,5 +179,5 @@ void GroundingTotemStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     GenericShamanStrategy::InitTriggers(triggers);
     triggers.push_back(new TriggerNode("set grounding totem", { NextAction("set grounding totem", 60.0f) }));
-    triggers.push_back(new TriggerNode("no air totem", { NextAction("grounding totem", 55.0f) }));
+    triggers.push_back(new TriggerNode("no air totem", { NextAction("set grounding totem", 55.0f) }));
 }

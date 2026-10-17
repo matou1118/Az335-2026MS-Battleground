@@ -88,6 +88,7 @@ public:
         creators["shadowform"] = &PriestTriggerFactoryInternal::shadowform;
         creators["vampiric embrace"] = &PriestTriggerFactoryInternal::vampiric_embrace;
         creators["power infusion"] = &PriestTriggerFactoryInternal::power_infusion;
+        creators["offensive mass dispel"] = &PriestTriggerFactoryInternal::offensive_mass_dispel;
         creators["inner focus"] = &PriestTriggerFactoryInternal::inner_focus;
         creators["shadow protection"] = &PriestTriggerFactoryInternal::shadow_protection;
         creators["shadow protection on party"] = &PriestTriggerFactoryInternal::shadow_protection_on_party;
@@ -130,6 +131,7 @@ private:
     static Trigger* divine_spirit_on_party(PlayerbotAI* botAI) { return new DivineSpiritOnPartyTrigger(botAI); }
     static Trigger* inner_fire(PlayerbotAI* botAI) { return new InnerFireTrigger(botAI); }
     static Trigger* power_infusion(PlayerbotAI* botAI) { return new PowerInfusionTrigger(botAI); }
+    static Trigger* offensive_mass_dispel(PlayerbotAI* botAI) { return new OffensiveMassDispelTrigger(botAI); }
     static Trigger* inner_focus(PlayerbotAI* botAI) { return new InnerFocusTrigger(botAI); }
     static Trigger* shadow_protection_on_party(PlayerbotAI* botAI) { return new ShadowProtectionOnPartyTrigger(botAI); }
     static Trigger* shadow_protection(PlayerbotAI* botAI) { return new ShadowProtectionTrigger(botAI); }

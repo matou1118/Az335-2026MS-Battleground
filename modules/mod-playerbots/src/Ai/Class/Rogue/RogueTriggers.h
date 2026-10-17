@@ -133,4 +133,26 @@ public:
     TricksOfTheTradeOnMainTankTrigger(PlayerbotAI* botAI) : BuffOnMainTankTrigger(botAI, "tricks of the trade", true) {}
 };
 
+class BlindInterruptSpellTrigger : public InterruptSpellTrigger
+{
+public:
+    BlindInterruptSpellTrigger(PlayerbotAI* botAI) : InterruptSpellTrigger(botAI, "blind") {}
+};
+
+class ShadowDanceTrigger : public SpellNoCooldownTrigger
+{
+public:
+    ShadowDanceTrigger(PlayerbotAI* botAI) : SpellNoCooldownTrigger(botAI, "shadow dance") {}
+
+    bool IsActive() override;
+};
+
+class DismantleOnMeleeTrigger : public Trigger
+{
+public:
+    DismantleOnMeleeTrigger(PlayerbotAI* botAI) : Trigger(botAI, "dismantle on melee") {}
+
+    bool IsActive() override;
+};
+
 #endif

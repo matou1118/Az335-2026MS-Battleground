@@ -134,3 +134,31 @@ bool OffHandWeaponNoEnchantTrigger::IsActive()
         return false;
     return true;
 }
+
+bool ShadowDanceTrigger::IsActive()
+{
+    // 战斗中有目标 + 天赋学了舞 + CD 好就开；舞中 opener(ambush/garrote) 由服务器 CheckCast 自动放行
+    return bot->IsInCombat() && botAI->HasSpell("shadow dance") && AI_VALUE(Unit*, "current target") &&
+           SpellNoCooldownTrigger::IsActive();
+}
+
+bool DismantleOnMeleeTrigger::IsActive()
+{
+    // 缴械只对武器职业有意义：近战内的物理职业才值得一个公共 CD
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !target->IsAlive() || bot->GetDistance(target) > 5.0f)
+        return false;
+
+    switch (target->getClass())
+    {
+        case CLASS_WARRIOR:
+        case CLASS_ROGUE:
+        case CLASS_PALADIN:
+        case CLASS_DEATH_KNIGHT:
+        case CLASS_SHAMAN:
+        case CLASS_HUNTER:
+            return true;
+        default:
+            return false;
+    }
+}

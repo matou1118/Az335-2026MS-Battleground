@@ -1220,6 +1220,7 @@ static std::vector<std::pair<uint8, uint32>> AV_AttackObjectives_Alliance = {
     {BG_AV_NODES_ICEBLOOD_TOWER, BG_AV_OBJECT_FLAG_H_ICEBLOOD_TOWER},
     {BG_AV_NODES_TOWER_POINT, BG_AV_OBJECT_FLAG_H_TOWER_POINT},
     {BG_AV_NODES_FROSTWOLF_GRAVE, BG_AV_OBJECT_FLAG_H_FROSTWOLF_GRAVE},
+    {BG_AV_NODES_SNOWFALL_GRAVE, BG_AV_OBJECT_FLAG_N_SNOWFALL_GRAVE},
     {BG_AV_NODES_FROSTWOLF_ETOWER, BG_AV_OBJECT_FLAG_H_FROSTWOLF_ETOWER},
     {BG_AV_NODES_FROSTWOLF_WTOWER, BG_AV_OBJECT_FLAG_H_FROSTWOLF_WTOWER},
     {BG_AV_NODES_FROSTWOLF_HUT, BG_AV_OBJECT_FLAG_H_FROSTWOLF_HUT},
@@ -1230,6 +1231,7 @@ static std::vector<std::pair<uint8, uint32>> AV_DefendObjectives_Horde = {
     {BG_AV_NODES_FROSTWOLF_WTOWER, BG_AV_OBJECT_FLAG_H_FROSTWOLF_WTOWER},
     {BG_AV_NODES_FROSTWOLF_ETOWER, BG_AV_OBJECT_FLAG_H_FROSTWOLF_ETOWER},
     {BG_AV_NODES_FROSTWOLF_GRAVE, BG_AV_OBJECT_FLAG_H_FROSTWOLF_GRAVE},
+    {BG_AV_NODES_SNOWFALL_GRAVE, BG_AV_OBJECT_FLAG_N_SNOWFALL_GRAVE},
     {BG_AV_NODES_TOWER_POINT, BG_AV_OBJECT_FLAG_H_TOWER_POINT},
     {BG_AV_NODES_ICEBLOOD_TOWER, BG_AV_OBJECT_FLAG_H_ICEBLOOD_TOWER},
     {BG_AV_NODES_ICEBLOOD_GRAVE, BG_AV_OBJECT_FLAG_H_ICEBLOOD_GRAVE},
@@ -1878,7 +1880,6 @@ bool BGTactics::selectObjective(bool reset)
 
             uint8 defendersProhab = 4;
             bool enableMineCapture = true;
-            bool enableSnowfall = true;
 
             switch (strategy)
             {
@@ -1888,11 +1889,16 @@ bool BGTactics::selectObjective(bool reset)
                 case AV_STRATEGY_OFFENSIVE:
                     defendersProhab = 0;
                     enableMineCapture = false;
-                    enableSnowfall = false;
                     break;
                 case AV_STRATEGY_DEFENSIVE:
                     defendersProhab = 9;
-                    enableSnowfall = false;
+                    break;
+                case AV_STRATEGY_SIEGE:
+                    defendersProhab = 2;
+                    break;
+                case AV_STRATEGY_TOWERS:
+                    defendersProhab = 1;
+                    enableMineCapture = false;
                     break;
                 default:
                     break;
@@ -1949,6 +1955,20 @@ bool BGTactics::selectObjective(bool reset)
                 if (av->GetAVNodeInfo(nodeId).State == POINT_DESTROYED)
                     destroyedNodes++;
 
+            // Enemy towers already down, and whether any attack target is contested right now.
+            // The siege and tower playbooks pick their next step off these two, and the graveyard
+            // bot stands down while a tower is hot.
+            uint32 towersDown = 0;
+            bool towerHot = false;
+            for (auto const& [nodeId, _] : attackObjectives)
+            {
+                BG_AV_NodeInfo const& node = av->GetAVNodeInfo(nodeId);
+                if (node.State == POINT_DESTROYED)
+                    ++towersDown;
+                else if (node.OwnerId != team || node.State == POINT_ASSAULTED)
+                    towerHot = true;
+            }
+
             float botX = bot->GetPositionX();
             if (isDefender)
             {
@@ -1962,6 +1982,41 @@ bool BGTactics::selectObjective(bool reset)
                 uint32 switchChance = 60 + (destroyedNodes * 20);
                 if (urand(0, 99) < switchChance)
                     isDefender = false;
+            }
+
+            // --- Lost graveyard: a fixed few always turn back ---
+            // shouldReinforce() above needs >= 2 enemies standing at the node, but AV graveyards
+            // flip instantly: by the time bots re-pick an objective the taker is already gone, so
+            // that condition never held and nobody ever rescued a lost graveyard. Graveyards only -
+            // doing it for towers as well pulled three bots off the towers for every lost node and
+            // left them standing empty. Distance is not limited on purpose: the whole team sits at
+            // the front line, which is the case that was reported.
+            if (!isDefender && role < 3)
+            {
+                static uint8 const graveyardNodes[] = {BG_AV_NODES_SNOWFALL_GRAVE, BG_AV_NODES_STORMPIKE_GRAVE,
+                                                        BG_AV_NODES_STONEHEART_GRAVE, BG_AV_NODES_ICEBLOOD_GRAVE};
+
+                for (auto const& [nodeId, goId] : defendObjectives)
+                {
+                    bool isGraveyard = false;
+                    for (uint8 const graveyardNode : graveyardNodes)
+                        if (nodeId == graveyardNode)
+                        {
+                            isGraveyard = true;
+                            break;
+                        }
+                    if (!isGraveyard)
+                        continue;
+
+                    BG_AV_NodeInfo const& node = av->GetAVNodeInfo(nodeId);
+                    if (node.State == POINT_DESTROYED || node.OwnerId == team)
+                        continue;
+                    if (!bg->GetBGObject(goId))
+                        continue;
+
+                    isDefender = true;
+                    break;
+                }
             }
 
             // --- Mine Capture (only 1-2 bots, not a whole squad) ---
@@ -1997,13 +2052,16 @@ bool BGTactics::selectObjective(bool reset)
                 }
             }
 
-            // --- Snowfall ---
-            bool hasSnowfallRole = enableSnowfall && ((team == TEAM_ALLIANCE && role < 2) || (team == TEAM_HORDE && role < 2));
+            // Snowfall graveyard: it starts Horde-owned, so the old "== TEAM_NEUTRAL" test was never
+            // true and nobody ever took it. Exactly one Alliance bot goes, and only while no tower is
+            // hot - when every bot piled in there (role < 2 is the heaviest band) the towers stood
+            // empty, which is what got reported on 2026-10-17.
+            bool hasSnowfallRole = (team == TEAM_ALLIANCE) && role == 0 && !towerHot;
 
             if (!BgObjective && hasSnowfallRole)
             {
                 BG_AV_NodeInfo const& snowfallNode = av->GetAVNodeInfo(BG_AV_NODES_SNOWFALL_GRAVE);
-                if (snowfallNode.OwnerId == TEAM_NEUTRAL)
+                if (snowfallNode.OwnerId != team)
                 {
                     if (GameObject* go = bg->GetBGObject(BG_AV_OBJECT_FLAG_N_SNOWFALL_GRAVE))
                     {
@@ -2013,7 +2071,7 @@ bool BGTactics::selectObjective(bool reset)
                         if (Map* map = bot->GetMap())
                         {
                             float groundZ = map->GetHeight(rx, ry, rz);
-                            if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                            if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                                 rz = groundZ;
                         }
 
@@ -2025,7 +2083,13 @@ bool BGTactics::selectObjective(bool reset)
             }
 
             // --- Captain ---
-            if (!BgObjective && urand(0, 99) < 10)
+            // The enemy captain buffs their whole team, so the siege playbook hunts it on purpose as
+            // soon as the gates are open; the tower rush does not care about it at all.
+            uint32 captainChance = strategy == AV_STRATEGY_SIEGE    ? (towersDown >= 1 ? 70u : 20u)
+                                 : strategy == AV_STRATEGY_TOWERS  ? 0u
+                                                                    : 10u;
+
+            if (!BgObjective && urand(0, 99) < captainChance)
             {
                 if (av->IsCaptainAlive(team == TEAM_HORDE ? TEAM_ALLIANCE : TEAM_HORDE))
                 {
@@ -2056,7 +2120,10 @@ bool BGTactics::selectObjective(bool reset)
                     if (!go)
                         continue;
 
-                    if (node.State == POINT_ASSAULTED)
+                    // Lost nodes count too: once the enemy finishes capping, OwnerId
+                    // flips and the old POINT_ASSAULTED-only check dropped them - the
+                    // base stayed "opened" and defenders marched out on attacker logic.
+                    if (node.State == POINT_ASSAULTED || node.OwnerId != team)
                         contestedObjectives.push_back(go);
                     else
                         availableObjectives.push_back(go);
@@ -2067,29 +2134,50 @@ bool BGTactics::selectObjective(bool reset)
                 // else: no nodes under attack - don't defend safe nodes, fall through to attacker logic
             }
 
+            // --- Own Boss Defense ---
+            // Nothing ever defended the general: lost nodes were skipped (fix above) and
+            // attackers only walk the enemy-side objective list, so once enemies were
+            // inside the base nobody came back until the boss died and the game ended.
+            // Enemies standing at our boss pull everyone who has no other objective.
+            if (!BgObjective)
+            {
+                uint32 ownBossId = (team == TEAM_HORDE) ? AV_CREATURE_H_BOSS : AV_CREATURE_A_BOSS;
+                if (Creature* ownBoss = bg->GetBGCreature(ownBossId);
+                    ownBoss && ownBoss->IsAlive() &&
+                    getPlayersInArea((team == TEAM_ALLIANCE) ? TEAM_HORDE : TEAM_ALLIANCE,
+                                     ownBoss->GetPosition(), 200.0f, true) >= 2)
+                {
+                    BgObjective = ownBoss;
+                }
+            }
+
             // --- Enemy Boss ---
             if (!BgObjective)
             {
-                uint32 towersDown = 0;
-                for (auto const& [nodeId, _] : attackObjectives)
-                    if (av->GetAVNodeInfo(nodeId).State == POINT_DESTROYED)
-                        towersDown++;
+                uint8 lastGY = (team == TEAM_HORDE) ? BG_AV_NODES_FIRSTAID_STATION : BG_AV_NODES_FROSTWOLF_HUT;
+                bool ownsFinalGY = av->GetAVNodeInfo(lastGY).OwnerId == team;
 
-                if ((towersDown >= 1) || (strategy == AV_STRATEGY_OFFENSIVE))
+                // When the general is allowed to be the objective. Offensive always rushes it,
+                // balanced/siege wait for the traditional work (final graveyard or 2+ towers), and a
+                // tower rush needs the base properly cracked first. The old "3+ bots nearby" clause
+                // was an echo chamber: the first bots reaching the boss dragged the team off the
+                // towers, so it is gone.
+                bool pushBoss = false;
+                switch (strategy)
                 {
-                    uint8 lastGY = (team == TEAM_HORDE) ? BG_AV_NODES_FIRSTAID_STATION : BG_AV_NODES_FROSTWOLF_HUT;
-                    bool ownsFinalGY = av->GetAVNodeInfo(lastGY).OwnerId == team;
+                    case AV_STRATEGY_OFFENSIVE: pushBoss = true; break;
+                    case AV_STRATEGY_TOWERS:    pushBoss = towersDown >= 4 || ownsFinalGY; break;
+                    case AV_STRATEGY_SIEGE:     pushBoss = towersDown >= 2 || ownsFinalGY; break;
+                    default:                     pushBoss = towersDown >= 2 || ownsFinalGY; break;
+                }
 
+                if (pushBoss)
+                {
                     uint32 bossId = (team == TEAM_HORDE) ? AV_CREATURE_A_BOSS : AV_CREATURE_H_BOSS;
                     if (Creature* boss = bg->GetBGCreature(bossId))
                     {
                         if (boss->IsAlive())
-                        {
-                            uint32 nearbyCount = getPlayersInArea(team, boss->GetPosition(), 200.0f, false);
-                            // Push to boss if: own final GY, or 3+ bots already there, or 2+ towers down
-                            if (ownsFinalGY || nearbyCount >= 3 || towersDown >= 2)
-                                BgObjective = boss;
-                        }
+                            BgObjective = boss;
                     }
                 }
             }
@@ -2109,17 +2197,55 @@ bool BGTactics::selectObjective(bool reset)
                     // Don't skip assaulted nodes - bots should help capture them
                     candidates.push_back(go);
 
-                    // Spread bots across up to 5 objectives for balanced/offensive
-                    // so they actively capture towers and graveyards
-                    if (((strategy == AV_STRATEGY_BALANCED && candidates.size() >= 5) ||
-                         (strategy == AV_STRATEGY_OFFENSIVE && candidates.size() >= 5) ||
-                         (strategy == AV_STRATEGY_DEFENSIVE && candidates.size() >= 2)) ||
-                        isAdvanced)
+                    // Spread bots across as many objectives as this playbook allows - that spread is
+                    // what separates the playbooks: two while defending, six on a tower rush.
+                    uint32 maxSpread = 5;
+                    switch (strategy)
+                    {
+                        case AV_STRATEGY_DEFENSIVE: maxSpread = 2; break;
+                        case AV_STRATEGY_SIEGE:     maxSpread = 4; break;
+                        case AV_STRATEGY_TOWERS:    maxSpread = 6; break;
+                        default:                     maxSpread = 5; break;
+                    }
+
+                    if (candidates.size() >= maxSpread || isAdvanced)
                         break;
                 }
 
                 if (!candidates.empty())
-                    BgObjective = candidates[role % candidates.size()];
+                {
+                    // Split the team instead of funnelling it. The objective list is ordered
+                    // "closest to our side first", so role % size used to send everybody to the
+                    // same mid-map node - that is the brawl nobody escaped from, and the enemy
+                    // base towers (last in the list) were never even reached. Now the noisy node
+                    // pulls the line (role < 3) while the rest walk to whatever is undefended.
+                    TeamId const enemyTeam = (team == TEAM_ALLIANCE) ? TEAM_HORDE : TEAM_ALLIANCE;
+                    uint32 loudest = 0;
+                    uint32 quietest = uint32(-1);
+                    size_t loudIdx = 0;
+                    size_t quietIdx = 0;
+                    for (size_t i = 0; i < candidates.size(); ++i)
+                    {
+                        uint32 const enemies =
+                            getPlayersInArea(enemyTeam, candidates[i]->GetPosition(), 200.0f, true);
+                        if (enemies > loudest)
+                        {
+                            loudest = enemies;
+                            loudIdx = i;
+                        }
+                        if (enemies < quietest)
+                        {
+                            quietest = enemies;
+                            quietIdx = i;
+                        }
+                    }
+
+                    // All nodes look the same (no enemies anywhere): fall back to a plain
+                    // rotation so the team still spreads over the map.
+                    BgObjective = (quietest == loudest) ? candidates[role % candidates.size()]
+                                                       : (role < 3 ? candidates[loudIdx]
+                                                                   : candidates[quietIdx]);
+                }
                 else
                 {
                     // Fallback: move to boss wait position
@@ -2131,7 +2257,7 @@ bool BGTactics::selectObjective(bool reset)
                     if (Map* map = bot->GetMap())
                     {
                         float groundZ = map->GetHeight(rx, ry, rz);
-                        if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                        if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                             rz = groundZ;
                     }
 
@@ -2174,7 +2300,7 @@ bool BGTactics::selectObjective(bool reset)
                 if (Map* map = bot->GetMap())
                 {
                     float groundZ = map->GetHeight(rx, ry, rz);
-                    if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                    if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                         rz = groundZ;
                 }
 
@@ -2479,7 +2605,7 @@ bool BGTactics::selectObjective(bool reset)
                 if (Map* map = bot->GetMap())
                 {
                     float groundZ = map->GetHeight(rx, ry, rz);
-                    if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                    if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                         rz = groundZ;
                 }
                 pos.Set(rx, ry, rz, bot->GetMapId());
@@ -2570,7 +2696,7 @@ bool BGTactics::selectObjective(bool reset)
                 if (Map* map = bot->GetMap())
                 {
                     float groundZ = map->GetHeight(rx, ry, rz);
-                    if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                    if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                         rz = groundZ;
                 }
 
@@ -2691,7 +2817,7 @@ bool BGTactics::selectObjective(bool reset)
                     if (Map* map = bot->GetMap())
                     {
                         float groundZ = map->GetHeight(rx, ry, rz);
-                        if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                        if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                             rz = groundZ;
                     }
 
@@ -2719,7 +2845,7 @@ bool BGTactics::selectObjective(bool reset)
                     if (Map* map = bot->GetMap())
                     {
                         float groundZ = map->GetHeight(rx, ry, rz);
-                        if (groundZ == VMAP_INVALID_HEIGHT_VALUE)
+                        if (groundZ != VMAP_INVALID_HEIGHT_VALUE)
                             rz = groundZ;
                     }
 
@@ -2857,34 +2983,47 @@ bool BGTactics::selectObjective(bool reset)
                 }
                 else
                 {
-                    float bestDist = FLT_MAX;
-                    Optional<uint32> bestNode;
+                    // Opening move. This used to send every bot to the single nearest
+                    // unowned base, so the whole team stacked on one node and nobody
+                    // contested the middle. Spread on a stable per-bot hash instead:
+                    // roughly a quarter go for the Netherstorm flag, the rest split
+                    // over the bases so both sides get bodies.
+                    uint64 const key = bot->GetGUID().GetRawValue();
+                    uint32 const draw = uint32((key * 2654435761ULL) >> 32);
 
-                    for (auto const& [nodeId, _, __] : EY_AttackObjectives)
+                    if (draw % 4 == 0)
                     {
-                        if (IsOwned(nodeId))
-                            continue;
-
-                        auto it = EY_NodePositions.find(nodeId);
-                        if (it == EY_NodePositions.end())
-                            continue;
-
-                        float dist = bot->GetDistance(it->second);
-                        if (dist < bestDist)
+                        if (GameObject* flag = bg->GetBGObject(BG_EY_OBJECT_FLAG_NETHERSTORM);
+                            flag && flag->isSpawned())
                         {
-                            bestDist = dist;
-                            bestNode = nodeId;
+                            float rx, ry, rz;
+                            bot->GetRandomPoint(flag->GetPosition(), 5.0f, rx, ry, rz);
+                            rz = bot->GetMap()->GetHeight(rx, ry, rz);
+                            pos.Set(rx, ry, rz, bot->GetMapId());
+                            foundObjective = true;
                         }
                     }
 
-                    if (bestNode && EY_NodePositions.contains(*bestNode))
+                    if (!foundObjective)
                     {
-                        Position const& p = EY_NodePositions[*bestNode];
-                        float rx, ry, rz;
-                        bot->GetRandomPoint(p, 5.0f, rx, ry, rz);
-                        rz = bot->GetMap()->GetHeight(rx, ry, rz);
-                        pos.Set(rx, ry, rz, bot->GetMapId());
-                        foundObjective = true;
+                        std::vector<uint32> openNodes;
+                        for (auto const& [nodeId, _, __] : EY_AttackObjectives)
+                        {
+                            if (IsOwned(nodeId))
+                                continue;
+                            if (EY_NodePositions.contains(nodeId))
+                                openNodes.push_back(nodeId);
+                        }
+
+                        if (!openNodes.empty())
+                        {
+                            Position const& p = EY_NodePositions[openNodes[draw % openNodes.size()]];
+                            float rx, ry, rz;
+                            bot->GetRandomPoint(p, 5.0f, rx, ry, rz);
+                            rz = bot->GetMap()->GetHeight(rx, ry, rz);
+                            pos.Set(rx, ry, rz, bot->GetMapId());
+                            foundObjective = true;
+                        }
                     }
                 }
             }

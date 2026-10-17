@@ -98,7 +98,7 @@ private:
         return new ActionNode(
             "taunt",
             /*P*/ {},
-            /*A*/ { NextAction("heroic throw taunt") },
+            /*A*/ { NextAction("heroic throw") },
             /*C*/ {}
         );
     }

@@ -93,8 +93,9 @@ bool AutoShareQuestAction::Execute(Event /*event*/)
                     ai->HandleMasterIncomingPacket(packet);
                 }
             }
-            else
-                partyNeedsQuest = true;
+            // Real players are deliberately left out: pushing the quest to the party
+            // popped a share dialog on every human sharing a bot party (reported in AV).
+            // Bots still share with each other through the branch above.
         }
 
         if (!partyNeedsQuest)

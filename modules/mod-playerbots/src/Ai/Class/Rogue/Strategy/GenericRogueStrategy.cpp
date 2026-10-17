@@ -52,4 +52,22 @@ void GenericRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // NFU 焦点致盲宏等价物：当前目标在读条、踢在 CD/够不着时，10yd 的盲接上断条+控制
+    triggers.push_back(
+        new TriggerNode(
+            "blind",
+            {
+                NextAction("blind", ACTION_INTERRUPT)
+            }
+        )
+    );
+    // NFU 焦点拆卸宏等价物：近战内的武器职业直接缴械压伤害
+    triggers.push_back(
+        new TriggerNode(
+            "dismantle on melee",
+            {
+                NextAction("dismantle", ACTION_NORMAL + 6)
+            }
+        )
+    );
 }

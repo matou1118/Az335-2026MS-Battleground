@@ -74,6 +74,26 @@ void AssassinationRogueStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
 {
     GenericRogueStrategy::InitTriggers(triggers);
 
+    // 暗影之舞：CD 好即开（敏锐天赋，无天赋者 HasSpell 挡住），舞中 opener 链自动生效
+    triggers.push_back(
+        new TriggerNode(
+            "shadow dance",
+            {
+                NextAction("shadow dance", ACTION_HIGH + 8)
+            }
+        )
+    );
+
+    // NFU 预谋宏等价物：潜行中开怪前 +2 连击点，不破潜行，opener 直接带点进循环
+    triggers.push_back(
+        new TriggerNode(
+            "in stealth",
+            {
+                NextAction("premeditation", ACTION_HIGH + 8)
+            }
+        )
+    );
+
     triggers.push_back(
         new TriggerNode(
             "high energy available",
@@ -88,7 +108,9 @@ void AssassinationRogueStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
         new TriggerNode(
             "high energy available",
             {
-                NextAction("mutilate", ACTION_NORMAL + 3)
+                NextAction("mutilate", ACTION_NORMAL + 3),
+                // 敏锐贼没有毁伤(mutilate 降级到 backstab)，低能量窗口由出血接管 builder
+                NextAction("hemorrhage", ACTION_NORMAL + 2)
             }
         )
     );
@@ -208,6 +230,8 @@ void AssassinationRogueStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
             "enemy out of melee",
             {
                 NextAction("stealth", ACTION_HIGH + 3),
+                // 暗影步 30yd 瞬移到目标背后 +20%伤害：有天赋的敏锐贼优先于跑步
+                NextAction("shadowstep", ACTION_HIGH + 2.5),
                 NextAction("sprint", ACTION_HIGH + 2),
                 NextAction("reach melee", ACTION_HIGH + 1),
             }

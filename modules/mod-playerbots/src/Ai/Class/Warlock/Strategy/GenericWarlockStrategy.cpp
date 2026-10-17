@@ -76,6 +76,16 @@ void GenericWarlockStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // Death coil: instant horror the moment a melee train connects - the lock's
+    // only self-peel that needs no cast time, so it wins races fear cannot.
+    triggers.push_back(
+        new TriggerNode(
+            "enemy within melee",
+            {
+                NextAction("death coil", 33.0f)
+            }
+        )
+    );
 }
 
 // ===== AoE Strategy, 3+ enemies =====

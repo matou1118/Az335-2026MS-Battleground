@@ -9,6 +9,15 @@
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
 
+bool OffensiveMassDispelTrigger::IsActive()
+{
+    // Only worth the global when an enemy sits behind a big magic defensive:
+    // ice block (45438), divine shield (642), hand of protection (1022).
+    Unit* target = AI_VALUE(Unit*, "enemy player target");
+    return target && target->IsAlive() &&
+           (target->HasAura(45438) || target->HasAura(642) || target->HasAura(1022));
+}
+
 bool ShadowProtectionTrigger::IsActive()
 {
     return BuffTrigger::IsActive() && !botAI->HasAura("prayer of shadow protection", GetTarget());

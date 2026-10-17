@@ -14626,6 +14626,12 @@ bool Player::CanResummonPet(uint32 spellid)
         return true;
     }
 
+    // A pet created without any spell (GM-created, cross-class tame) reports spellid 0.
+    // The caller has already established that the owner had a controlled pet it just
+    // stowed away, so there is no "summon spell was lost" case to guard against here.
+    if (!spellid)
+        return true;
+
     return HasSpell(spellid);
 }
 

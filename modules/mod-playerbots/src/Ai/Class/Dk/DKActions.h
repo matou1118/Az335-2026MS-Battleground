@@ -329,6 +329,12 @@ public:
     CastMindFreezeOnEnemyHealerAction(PlayerbotAI* botAI) : CastSpellOnEnemyHealerAction(botAI, "mind freeze") {}
 };
 
+class CastDeathGripOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
+{
+public:
+    CastDeathGripOnEnemyHealerAction(PlayerbotAI* botAI) : CastSpellOnEnemyHealerAction(botAI, "death grip") {}
+};
+
 class CastRuneTapAction : public CastMeleeSpellAction
 {
 public:

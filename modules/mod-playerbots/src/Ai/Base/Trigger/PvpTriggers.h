@@ -14,7 +14,10 @@ class PlayerbotAI;
 class EnemyPlayerNear : public Trigger
 {
 public:
-    EnemyPlayerNear(PlayerbotAI* botAI) : Trigger(botAI, "enemy player near", 3) {}
+    // checkInterval=1 (every tick): this is the sole "spot enemy -> engage" trigger in
+    // battlegrounds. At 3 it only evaluated every 3s, so both teams hesitated ~3-5s on
+    // contact. IsActive only reads a cached pointer, so checking per tick costs nothing.
+    EnemyPlayerNear(PlayerbotAI* botAI) : Trigger(botAI, "enemy player near", 1) {}
 
     bool IsActive() override;
 };

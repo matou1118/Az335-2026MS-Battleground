@@ -35,10 +35,12 @@ enum ABBotStrategy : uint8
 
 enum AVBotStrategy : uint8
 {
-    AV_STRATEGY_BALANCED      = 0,
-    AV_STRATEGY_OFFENSIVE     = 1,
-    AV_STRATEGY_DEFENSIVE     = 2,
-    AV_STRATEGY_MAX           = 3,
+    AV_STRATEGY_BALANCED      = 0,   // split the line, sneak the undefended tower, general last
+    AV_STRATEGY_OFFENSIVE     = 1,   // rush the general and hope to finish early
+    AV_STRATEGY_DEFENSIVE     = 2,   // hold what we own, only push when forced
+    AV_STRATEGY_SIEGE         = 3,   // classic: graveyard + gate tower -> enemy captain -> base -> general
+    AV_STRATEGY_TOWERS        = 4,   // tower rush: seven towers first, one bot on graveyards
+    AV_STRATEGY_MAX           = 5,
 };
 
 enum EYBotStrategy : uint8

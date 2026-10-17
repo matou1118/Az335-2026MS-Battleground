@@ -61,8 +61,9 @@ bool MarkRtiAction::Execute(Event /*event*/)
     if (!group)
         return false;
 
-    if (bot->InBattleground())
-        return false;
+    // Battlegrounds used to bail out here, which left "rti cc target" permanently empty
+    // and therefore stopped every RTI-based CC (warlock Fear, trap-on-cc) from ever
+    // firing there. Marking is harmless - it is just a raid icon.
 
     Unit* target = nullptr;
     GuidVector attackers = botAI->GetAiObjectContext()->GetValue<GuidVector>("attackers")->Get();
@@ -72,8 +73,8 @@ bool MarkRtiAction::Execute(Event /*event*/)
         if (!unit)
             continue;
 
-        // do not mark players
-        if (unit->IsPlayer())
+        // In a battleground the enemies ARE players, so only skip players elsewhere.
+        if (unit->IsPlayer() && !bot->InBattleground())
             continue;
 
         bool marked = false;

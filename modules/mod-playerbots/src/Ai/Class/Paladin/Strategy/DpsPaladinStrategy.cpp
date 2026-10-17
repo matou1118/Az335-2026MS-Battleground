@@ -165,4 +165,22 @@ void DpsPaladinStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // Repentance had three registered triggers and three registered actions but no
+    // TriggerNode joined them, so a paladin never cast its only cast-time CC.
+    triggers.push_back(
+        new TriggerNode(
+            "repentance on enemy healer",
+            {
+                NextAction("repentance on enemy healer", ACTION_HIGH + 6)
+            }
+        )
+    );
+    triggers.push_back(
+        new TriggerNode(
+            "repentance on snare target",
+            {
+                NextAction("repentance on snare target", ACTION_HIGH + 5)
+            }
+        )
+    );
 }

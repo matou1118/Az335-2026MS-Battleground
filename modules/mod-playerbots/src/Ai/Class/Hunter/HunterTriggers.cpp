@@ -9,6 +9,8 @@
 #include "GenericTriggers.h"
 #include "HunterActions.h"
 #include "Player.h"
+#include "SpellAuras.h"
+#include "SpellInfo.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
 #include "Playerbots.h"
@@ -26,6 +28,20 @@ bool BlackArrowTrigger::IsActive()
         return false;
 
     return DebuffTrigger::IsActive();
+}
+
+bool SelfSnaredTrigger::IsActive()
+{
+    for (auto const& itr : bot->GetOwnedAuras())
+    {
+        if (Aura* aura = itr.second)
+        {
+            if (aura->GetSpellInfo() &&
+                (aura->GetSpellInfo()->GetAllEffectsMechanicMask() & (MECHANIC_SNARE | MECHANIC_ROOT)))
+                return true;
+        }
+    }
+    return false;
 }
 
 bool HunterAspectOfTheDragonhawkTrigger::IsActive()

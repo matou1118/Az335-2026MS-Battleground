@@ -1557,7 +1557,10 @@ GameObject* Battleground::GetBGObject(uint32 type)
 Creature* Battleground::GetBGCreature(uint32 type)
 {
     Creature* creature = GetBgMap()->GetCreature(BgCreatures[type]);
-    if (!creature)
+    // A type this battleground never registered (e.g. the AV marshals before their tower
+    // burns - the boss scripts always query them) is not an error. Only a registered
+    // guid that has no creature on the map is worth reporting.
+    if (!creature && !BgCreatures[type].IsEmpty())
         LOG_ERROR("bg.battleground", "Battleground::GetBGCreature: creature (type: {}, {}) not found for BG (map: {}, instance id: {})!",
                        type, BgCreatures[type].ToString(), m_MapId, m_InstanceID);
     return creature;

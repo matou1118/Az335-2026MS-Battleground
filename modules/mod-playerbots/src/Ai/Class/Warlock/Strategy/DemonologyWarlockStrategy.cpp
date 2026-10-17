@@ -143,4 +143,14 @@ void MetaMeleeAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // Shadow cleave replaces white swings in demon form: burn it on CD while
+    // standing in melee during meta (CheckCast gates the meta-form requirement).
+    triggers.push_back(
+        new TriggerNode(
+            "enemy within melee",
+            {
+                NextAction("shadow cleave", 26.0f)
+            }
+        )
+    );
 }

@@ -67,5 +67,14 @@ void WarriorAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(
         new TriggerNode("shockwave on snare target",
                         { NextAction("shockwave on snare target", ACTION_HIGH + 5) }));
+    // Thunder Clap on a snared target follows the same pattern. The trigger and action
+    // were both registered but nothing ever created the node, so it was never used.
+    triggers.push_back(
+        new TriggerNode("thunder clap on snare target",
+                        { NextAction("thunder clap on snare target", ACTION_HIGH + 4) }));
+    // Intercept to a snared target was registered the same way and never wired.
+    triggers.push_back(
+        new TriggerNode("intercept on snare target",
+                        { NextAction("intercept on snare target", ACTION_HIGH + 3) }));
 
 }
