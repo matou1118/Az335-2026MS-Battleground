@@ -54,6 +54,11 @@ enum EYBotStrategy : uint8
 
 typedef void (*BattleBotWaypointFunc)();
 
+// Arena bots used to run at the centre the moment the round went live and finish the
+// match among themselves before a real player could take part. Hold them at the gate
+// for this long first so the round is actually played.
+#define ARENA_GATHER_DELAY_MS 8000
+
 struct BGStrategyData
 {
     uint8 allianceStrategy = 0;
@@ -157,6 +162,12 @@ public:
 
 private:
     bool moveToCenter(Battleground* bg);
+    // Every arena spot in moveToCenter() is offset with frand(). That jitter made
+    // each MoveTo() a different destination, so MovementAction::IsDuplicateMove()
+    // never matched and the bot was re-ordered a new move on every AI tick -
+    // jittering on the spot instead of walking to it. Go through here so a bot that
+    // is already standing on its spot is left alone.
+    bool moveToArenaSpot(Battleground* bg, float x, float y, float z, bool idle = false, bool react = true);
 };
 
 #endif

@@ -4581,6 +4581,14 @@ bool ArenaTactics::Execute(Event /*event*/)
     if (bg->GetStartDelayTime() > 0)
         return false;
 
+    // Gather before engaging. Bots used to charge the arena centre the instant the
+    // round went live, so the nine bots on the field resolved the whole match before
+    // a real player could land. GetStartTime() is the ms elapsed since
+    // StartBattleground() reset it, so this holds every bot at the gate for the first
+    // seconds of the round instead of starting a straight 9-way brawl.
+    if (bg->GetStartTime() < ARENA_GATHER_DELAY_MS)
+        return false;
+
     if (botAI->HasStrategy("collision", BOT_STATE_NON_COMBAT))
         botAI->ChangeStrategy("-collision", BOT_STATE_NON_COMBAT);
 
@@ -4613,6 +4621,17 @@ bool ArenaTactics::Execute(Event /*event*/)
         return moveToCenter(bg);
 
     return true;
+}
+
+bool ArenaTactics::moveToArenaSpot(Battleground* bg, float x, float y, float z, bool idle, bool react)
+{
+    if (!bg)
+        return true;
+
+    if (bot->IsWithinDist3d(x, y, z, 8.0f))
+        return true;
+
+    return MoveTo(bg->GetMapId(), x, y, z, idle, react);
 }
 
 bool ArenaTactics::moveToCenter(Battleground* bg)
@@ -4650,64 +4669,64 @@ bool ArenaTactics::moveToCenter(Battleground* bg)
             if (bg->GetTeamStartPosition(bot->GetBgTeamId())->GetPositionY() < 240)
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 6226.65f + frand(-1, +1), 264.36f + frand(-1, +1), 1.31f, false, true);
+                    moveToArenaSpot(bg, 6226.65f + frand(-1, +1), 264.36f + frand(-1, +1), 1.31f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 6239.89f + frand(-1, +1), 261.11f + frand(-1, +1), 0.89f, false, true);
+                    moveToArenaSpot(bg, 6239.89f + frand(-1, +1), 261.11f + frand(-1, +1), 0.89f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 6235.60f + frand(-1, +1), 258.27f + frand(-1, +1), 0.89f, false, true);
+                    moveToArenaSpot(bg, 6235.60f + frand(-1, +1), 258.27f + frand(-1, +1), 0.89f, false, true);
             }
             else
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 6265.72f + frand(-1, +1), 271.92f + frand(-1, +1), 3.65f, false, true);
+                    moveToArenaSpot(bg, 6265.72f + frand(-1, +1), 271.92f + frand(-1, +1), 3.65f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 6239.89f + frand(-1, +1), 261.11f + frand(-1, +1), 0.89f, false, true);
+                    moveToArenaSpot(bg, 6239.89f + frand(-1, +1), 261.11f + frand(-1, +1), 0.89f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 6250.50f + frand(-1, +1), 266.66f + frand(-1, +1), 2.63f, false, true);
+                    moveToArenaSpot(bg, 6250.50f + frand(-1, +1), 266.66f + frand(-1, +1), 2.63f, false, true);
             }
             break;
         case BATTLEGROUND_RL:
             if (bg->GetTeamStartPosition(bot->GetBgTeamId())->GetPositionY() < 1600)
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 1262.14f + frand(-1, +1), 1657.63f + frand(-1, +1), 33.76f, false, true);
+                    moveToArenaSpot(bg, 1262.14f + frand(-1, +1), 1657.63f + frand(-1, +1), 33.76f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 1266.85f + frand(-1, +1), 1663.52f + frand(-1, +1), 34.04f, false, true);
+                    moveToArenaSpot(bg, 1266.85f + frand(-1, +1), 1663.52f + frand(-1, +1), 34.04f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 1274.07f + frand(-1, +1), 1656.36f + frand(-1, +1), 34.58f, false, true);
+                    moveToArenaSpot(bg, 1274.07f + frand(-1, +1), 1656.36f + frand(-1, +1), 34.58f, false, true);
             }
             else
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 1261.93f + frand(-1, +1), 1669.27f + frand(-1, +1), 34.25f, false, true);
+                    moveToArenaSpot(bg, 1261.93f + frand(-1, +1), 1669.27f + frand(-1, +1), 34.25f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 1266.85f + frand(-1, +1), 1663.52f + frand(-1, +1), 34.04f, false, true);
+                    moveToArenaSpot(bg, 1266.85f + frand(-1, +1), 1663.52f + frand(-1, +1), 34.04f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 1266.37f + frand(-1, +1), 1672.40f + frand(-1, +1), 34.21f, false, true);
+                    moveToArenaSpot(bg, 1266.37f + frand(-1, +1), 1672.40f + frand(-1, +1), 34.21f, false, true);
             }
             break;
         case BATTLEGROUND_NA:
             if (bg->GetTeamStartPosition(bot->GetBgTeamId())->GetPositionY() < 2870)
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 4068.85f + frand(-1, +1), 2911.98f + frand(-1, +1), 12.99f, false, true);
+                    moveToArenaSpot(bg, 4068.85f + frand(-1, +1), 2911.98f + frand(-1, +1), 12.99f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 4056.99f + frand(-1, +1), 2919.75f + frand(-1, +1), 13.51f, false, true);
+                    moveToArenaSpot(bg, 4056.99f + frand(-1, +1), 2919.75f + frand(-1, +1), 13.51f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 4056.27f + frand(-1, +1), 2905.33f + frand(-1, +1), 12.90f, false, true);
+                    moveToArenaSpot(bg, 4056.27f + frand(-1, +1), 2905.33f + frand(-1, +1), 12.90f, false, true);
             }
             else
             {
                 if (Preference == 3)
-                    MoveTo(bg->GetMapId(), 4043.66f + frand(-1, +1), 2927.93f + frand(-1, +1), 13.17f, false, true);
+                    moveToArenaSpot(bg, 4043.66f + frand(-1, +1), 2927.93f + frand(-1, +1), 13.17f, false, true);
                 else if (Preference == 6)
-                    MoveTo(bg->GetMapId(), 4056.99f + frand(-1, +1), 2919.75f + frand(-1, +1), 13.51f, false, true);
+                    moveToArenaSpot(bg, 4056.99f + frand(-1, +1), 2919.75f + frand(-1, +1), 13.51f, false, true);
                 else
-                    MoveTo(bg->GetMapId(), 4054.80f + frand(-1, +1), 2934.28f + frand(-1, +1), 13.72f, false, true);
+                    moveToArenaSpot(bg, 4054.80f + frand(-1, +1), 2934.28f + frand(-1, +1), 13.72f, false, true);
             }
             break;
         case BATTLEGROUND_DS:
-            if (!MoveTo(bg->GetMapId(), 1291.58f + frand(-5, +5), 790.87f + frand(-5, +5), 7.8f, false, true))
+            if (!moveToArenaSpot(bg, 1291.58f + frand(-5, +5), 790.87f + frand(-5, +5), 7.8f, false, true))
             {
                 // they like to hang around at the tip of the pipes doing nothing, so we just teleport them down
                 if (bot->GetDistance(1333.07f, 817.18f, 13.35f) < 4)
@@ -4723,7 +4742,7 @@ bool ArenaTactics::moveToCenter(Battleground* bg)
             }
             break;
         case BATTLEGROUND_RV:
-            MoveTo(bg->GetMapId(), 764.65f + frand(-2, +2), -283.85f + frand(-2, +2), 28.28f, false, true);
+            moveToArenaSpot(bg, 764.65f + frand(-2, +2), -283.85f + frand(-2, +2), 28.28f, false, true);
             break;
         default:
             break;
