@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BattleGroundTactics.h"
 #include "ChooseTargetActions.h"
 #include "ChooseRpgTargetAction.h"
 #include "Event.h"
@@ -201,6 +202,21 @@ bool AttackRtiTargetAction::isUseful()
 {
     if (botAI->ContainsStrategy(STRATEGY_TYPE_HEAL))
         return false;
+
+    // Arena bots pulled the instant the round went live. Both teams start in
+    // sight of each other, so "rti target" resolves an enemy straight away and
+    // the nine bots on the field simply brawl - the match is over before a real
+    // player has landed. GetStartTime() is the ms elapsed since
+    // StartBattleground() zeroed it, so hold the pull for the first
+    // ARENA_GATHER_DELAY_MS of the round.
+    if (bot->InArena())
+    {
+        if (Battleground* bg = bot->GetBattleground())
+        {
+            if (bg->GetStatus() == STATUS_IN_PROGRESS && bg->GetStartTime() < ARENA_GATHER_DELAY_MS)
+                return false;
+        }
+    }
 
     return true;
 }

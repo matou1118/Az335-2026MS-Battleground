@@ -586,12 +586,12 @@ public:
         switch (bgType)
         {
             case BATTLEGROUND_WS:
-                data.allianceStrategy = WS_STRATEGY_OFFENSIVE;
-                data.hordeStrategy = WS_STRATEGY_OFFENSIVE;
+                data.allianceStrategy = urand(0, WS_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, WS_STRATEGY_MAX - 1);
                 break;
             case BATTLEGROUND_AB:
-                data.allianceStrategy = AB_STRATEGY_BALANCED;
-                data.hordeStrategy = AB_STRATEGY_BALANCED;
+                data.allianceStrategy = urand(0, AB_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, AB_STRATEGY_MAX - 1);
                 break;
             case BATTLEGROUND_AV:
                 // Fresh roll per team and per match so AV is not the same battle every time.
@@ -599,8 +599,8 @@ public:
                 data.hordeStrategy = RollAVStrategy();
                 break;
             case BATTLEGROUND_EY:
-                data.allianceStrategy = EY_STRATEGY_FLAG_FOCUS;
-                data.hordeStrategy = EY_STRATEGY_FLAG_FOCUS;
+                data.allianceStrategy = urand(0, EY_STRATEGY_MAX - 1);
+                data.hordeStrategy = urand(0, EY_STRATEGY_MAX - 1);
                 break;
             default:
                 break;
